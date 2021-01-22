@@ -11,7 +11,7 @@ Workflow:
 
 2. Download the data table template and fill in the specifics of your data.
    For in-house data: https://bit.ly/38VOMrc
-   For GEO data: https://bit.ly/...
+   For GEO data: https://bit.ly/3sFS6OG
 
 3. Save the data table in comma-separated csv format
 

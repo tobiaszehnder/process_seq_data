@@ -13,7 +13,7 @@ fasta_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/fasta
 [[ ! -e $fasta_dir/$build.fa ]] && ln -s $fasta $fasta_dir/$build.fa
 fasta=$fasta_dir/$build.fa 
 
-STAR --runThreadN $n \
-	 --runMode genomeGenerate \
+STAR --runMode genomeGenerate \
 	 --genomeDir $index_dir/${build} \
-	 --genomeFastaFiles $fasta
+	 --genomeFastaFiles $fasta \
+	 --runThreadN $n

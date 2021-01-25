@@ -102,7 +102,6 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		if [[ $sequencing_type == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_type == 'single-end' ]]; then reads=( "R1" ); else echo "sequencing_type must be either 'single-end' or 'paired-end'" && exit 1; fi
 		
 		# create symbolic links for original fastq files
-		files=()
 		if [[ $data_source == "mpimg" ]]; then
 			for read in "${reads[@]}"; do
 			    file=$seqcore_link/*${library_number}*${flow_cell}_${read}*fastq.gz
@@ -156,75 +155,78 @@ done
 # Align data and produce bigwig tracks
 for bam in "${!bams[@]}"; do
 	sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev)
+	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
 	build=${builds[$sample]}
 	echo -e "\n$sample:"
-
-	# align fastq to bam
-	echo "Aligning reads"
-	if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
-		# check if STAR genome index exists
-		star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build
-		star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
-		if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
-			echo "STAR genome not found. Create it from a fasta file using star_index.sh"
-			exit 1
-		fi
-		# align
-		current_file=$bam
-		star_align.sh -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
-		current_file=NA
-	else
-		file_exists $bam
-	fi
-
-	# fill in mate coordinates for paired-end. this requires the bam to be sorted by name. later, markdup again requires the bam to be sorted by coordinate, which we need two steps of sorting here.
-	if [[ ${sequencing_types[$sample]} == "paired-end" ]]; then
-		# sort bam by name
-		echo "Sorting alignment by name"
-		bam_nsort=${data_dir}/bam/${sample}.nsort.bam
-		if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then
-			current_file=$bam_nsort
-			samtools sort -n --threads $nthreads -o $bam_nsort $bam # -n flag for sorting by name
+	if [[ ! -e $bam_rmdup ]]; then
+		# align fastq to bam
+		echo "Aligning reads"
+		if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
+			# check if STAR genome index exists
+			star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build
+			star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
+			if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
+				echo "STAR genome not found. Create it from a fasta file using star_index.sh"
+				exit 1
+			fi
+			# align
+			current_file=$bam
+			star_align.sh -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
 			current_file=NA
 		else
-			file_exists $bam_nsort
+			file_exists $bam
 		fi
 
-		# fixmate
-		echo "Filling in mate coordinates"
-		bam_fixmate=${data_dir}/bam/${sample}.fixmate.bam
-		if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then
-			current_file=$bam_fixmate
-			samtools fixmate -m --threads $nthreads $bam_nsort $bam_fixmate
-			current_file=NA
-		else
-			file_exists $bam_fixmate
-		fi
+		# fill in mate coordinates for paired-end. this requires the bam to be sorted by name. later, markdup again requires the bam to be sorted by coordinate, which we need two steps of sorting here.
+		if [[ ${sequencing_types[$sample]} == "paired-end" ]]; then
+			# sort bam by name
+			echo "Sorting alignment by name"
+			bam_nsort=${data_dir}/bam/${sample}.nsort.bam
+			if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then
+				current_file=$bam_nsort
+				samtools sort -n --threads $nthreads -o $bam_nsort $bam # -n flag for sorting by name
+				current_file=NA
+			else
+				file_exists $bam_nsort
+			fi
 
-		# sort bam by coordinate
-		echo "Sorting alignment by coordinate"
-		bam_csort=${data_dir}/bam/${sample}.csort.bam
-		if [[ $overwrite == True ]] || [[ ! -e $bam_csort ]]; then  
-			current_file=$bam_csort
-			samtools sort --threads $nthreads -o $bam_csort $bam_fixmate
+			# fixmate
+			echo "Filling in mate coordinates"
+			bam_fixmate=${data_dir}/bam/${sample}.fixmate.bam
+			if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then
+				current_file=$bam_fixmate
+				samtools fixmate -m --threads $nthreads $bam_nsort $bam_fixmate
+				current_file=NA
+			else
+				file_exists $bam_fixmate
+			fi
+
+			# sort bam by coordinate
+			echo "Sorting alignment by coordinate"
+			bam_csort=${data_dir}/bam/${sample}.csort.bam
+			if [[ $overwrite == True ]] || [[ ! -e $bam_csort ]]; then  
+				current_file=$bam_csort
+				samtools sort --threads $nthreads -o $bam_csort $bam_fixmate
+				current_file=NA
+			else
+				file_exists $bam_csort
+			fi
+			bam=$bam_csort
+		fi
+		
+		# remove duplicates
+		echo "Removing duplicates"
+		if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
+			current_file=$bam_rmdup
+			samtools markdup -r --threads $nthreads $bam $bam_rmdup
 			current_file=NA
 		else
-			file_exists $bam_csort
+			file_exists $bam_rmdup
 		fi
-		bam=$bam_csort
-	fi
-	
-   # remove duplicates
-	echo "Removing duplicates"
-	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
-	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
-		current_file=$bam_rmdup
-		samtools markdup -r --threads $nthreads $bam $bam_rmdup
-		current_file=NA
 	else
 		file_exists $bam_rmdup
 	fi
-	
+
 	# index bam
 	echo "Indexing bam-file"
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup.csi ]]; then
@@ -250,16 +252,18 @@ done
 
 # remove loaded genome(s) from shared memory
 # STAR=/scratch/ngsvin/bin/mapping/STAR/STAR_2.6.1d/bin/Linux_x86_64_static/STAR
-echo -e "\nRemoving STAR indices from shared memory"
-STAR=STAR
-for build in "${!star_index_dirs[@]}"; do
-	echo $build
-	$STAR --genomeDir ${star_index_dirs[$build]} --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
-done
+if [[ ${#star_index_dirs[@]} -gt 0 ]]; then
+	echo -e "\nRemoving STAR indices from shared memory"
+	STAR=STAR
+	for build in "${!star_index_dirs[@]}"; do
+		echo $build
+		$STAR --genomeDir ${star_index_dirs[$build]} --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
+	done
+fi
 
 ### CLEANUP
 echo -e "\nCleaning up directory: Delete intermediate files"
-find $data_dir/fastq/ -type f !-name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore and downloaded SRR's
+find $data_dir/fastq/ -type f ! -name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore and downloaded SRR's
 find bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 
 echo Done

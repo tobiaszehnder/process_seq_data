@@ -70,10 +70,12 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 		row=${row//$'\n'/} # and newlines from row string
 		arr=(${row//,/ }) # convert row string to array
 		if [[ ${header[0]} == "seqcore_link" ]]; then # parse in-house data table
+			data_source="mpimg"
 			seqcore_link=${arr[0]}
 			library_number=${arr[9]}
 			flow_cell=${arr[10]}
 		elif [[ ${header[0]} == "SRR_number" ]]; then # parse GEO data table
+			data_source="GEO"
 			SRR_number=${arr[0]}
 		fi
 		feature=${arr[1]}
@@ -91,7 +93,12 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 		# create symbolic links for original fastq files
 		files=()
 		for read in "${reads[@]}"; do
-			file=$seqcore_link/mpimg_${library_number}*${flow_cell}_${read}*fastq.gz
+			if [[ $data_source == "mpimg" ]]; then
+				file=$seqcore_link/*${library_number}*${flow_cell}_${read}*fastq.gz
+			# elif [[ $data_source == "GEO" ]]; then
+				# 	file= ### CONTINUE HERE <<<------------------------------------------------------------------------------------------------------
+				# fastq-dump and gzip
+			fi
 			link=${data_dir}/${feature}_${tissue}_${stage}_${build}_${flow_cell}_${read}.fastq.gz
 			if [[ $overwrite == True ]] || [[ ! -e $link ]]; then
 				ln -sf $file $link

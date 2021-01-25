@@ -36,7 +36,7 @@ EOF
 # Print message if a file already exists
 file_exists() {
 	file=$(echo $1 | rev | cut -d'/' -f1,2 | rev) # trimmed path with only the last folder to avoid overcrowded print
-    echo "$file  exists and will not be overwritten. (Set the -o option for overwriting existing files)"
+    echo "$file exists and will not be overwritten. (Set the -o option for overwriting existing files)"
 }
 
 # ---------------------------------------------------
@@ -64,9 +64,9 @@ fi
 mkdir -p $data_dir/fastq $data_dir/bam $data_dir/bigwig
 
 # parse data table and create fastq links
-declare -A fastqs bams bigwigs experiments sequencing_types builds
+declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_dirs
 {
-	echo "Linking original fastq files"
+	echo "Downloading / linking to original fastq files"
 	IFS="," read -r row || [ -n "$row" ] # read the header
 	while IFS="," read -r row || [ -n "$row" ]; do # loop through rows
 		# parse row from table and assign its values to variables
@@ -117,7 +117,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds
 			done
 		elif [[ $data_source == "GEO" ]]; then
 			echo "Download $SRR_number from GEO"
-			if [[ $overwrite == True ]] || [[ $(ls -f ${data_dir}/fastq/*fastq.gz | grep -c ${SRR_number}_) == 0 ]]; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
+			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}_?.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
 				fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
 			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
@@ -163,7 +163,8 @@ for bam in "${!bams[@]}"; do
 	echo "Aligning reads"
 	if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
 		# check if STAR genome index exists
-		star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
+		star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build
+		star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
 		if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
 			echo "STAR genome not found. Create it from a fasta file using star_index.sh"
 			exit 1
@@ -247,15 +248,18 @@ for bam in "${!bams[@]}"; do
 	fi
 done
 
-# remove loaded genome from shared memory
+# remove loaded genome(s) from shared memory
 # STAR=/scratch/ngsvin/bin/mapping/STAR/STAR_2.6.1d/bin/Linux_x86_64_static/STAR
-echo "Removing STAR index from shared memory"
+echo -e "\nRemoving STAR indices from shared memory"
 STAR=STAR
-$STAR --genomeDir $star_index_dir --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
+for build in "${!star_index_dirs[@]}"; do
+	echo $build
+	$STAR --genomeDir ${star_index_dirs[$build]} --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
+done
 
 ### CLEANUP
-echo "Cleaning up directory: Delete intermediate files"
-find $data_dir/fastq/ -type f -delete # remove merged fastq's, only keep links to seqcore
+echo -e "\nCleaning up directory: Delete intermediate files"
+find $data_dir/fastq/ -type f !-name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore and downloaded SRR's
 find bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 
 echo Done

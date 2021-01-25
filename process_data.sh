@@ -32,7 +32,7 @@ EOF
 
 file_exists() {
 	file=$(echo $1 | rev | cut -d'/' -f1,2 | rev) # trimmed path with only the last folder to avoid overcrowded print
-    echo "$file exists and will not be overwritten. (Set the -o option for overwriting existing files)"
+    echo "$file  exists and will not be overwritten. (Set the -o option for overwriting existing files)"
 }
 
 # ---------------------------------------------------
@@ -57,7 +57,7 @@ if [ -z ${data_dir+x} ] || [ -z ${data_table+x} ] || [ -z ${nthreads+x} ] || [ -
 fi
 
 # create folder structures
-mkdir -p $data_dir
+mkdir -p $data_dir/fastq $data_dir/bam $data_dir/bigwig
 
 # parse data table and create fastq links
 declare -A fastqs bams bigwigs experiments sequencing_types
@@ -103,7 +103,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 					file_exists $link
 				fi
 				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
-				fastqs[$fastq]+=$link, # store the current link in an associative array with the name of the merged fastq as the key (in case of mutliple sequencing runs). Adding a comma allows to split them later.
+				fastqs[$fastq]+=$link,
 			done
 		elif [[ $data_source == "GEO" ]]; then
 			echo "Download $SRR_number from GEO"
@@ -115,6 +115,8 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 				fastqs[$fastq]+=$fastq, # here, key and value are identical, GEO data must be 1 run per experiment
 			done
 		fi
+
+			# store the current link in an associative array with the name of the merged fastq as the key (in case of mutliple sequencing runs). Adding a comma allows to split them later.
 	done
 } < $data_table
 
@@ -132,7 +134,7 @@ for fastq in "${!fastqs[@]}"; do
 		file_exists $fastq
 	fi
 	# store the current fastq in an associative array with the bamfile as the key. Adding a comma allows to split potential paired-end fastqs later (R1 and R2).
-	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' <<< "$fastq")
+	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' -e 's/fastq/bam/g' <<< "$fastq")
 	bams[$bam]+=$fastq,
 done
 echo ""
@@ -147,9 +149,9 @@ for bam in "${!bams[@]}"; do
 	echo "Align reads"
 	if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
 		# check if STAR genome index exists
-		star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/${build} # if star_index_dir was not passed, set it according to passed build
+		star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
 		if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
-			echo "Error: STAR genome not found. Create it from a fasta file using star_index.sh"
+			echo "STAR genome not found. Create it from a fasta file using star_index.sh"
 			exit 1
 		fi
 		# align
@@ -162,7 +164,7 @@ for bam in "${!bams[@]}"; do
 	if [[ ${sequencing_types[$sample]} == "paired-end" ]]; then
 		# sort bam by name
 		echo "Sort alignment by name"
-		bam_nsort=${data_dir}/${sample}.nsort.bam
+		bam_nsort=${data_dir}/bam/${sample}.nsort.bam
 		if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then  
 			samtools sort -n --threads $nthreads -o $bam_nsort $bam # -n flag for sorting by name
 		else
@@ -171,7 +173,7 @@ for bam in "${!bams[@]}"; do
 
 		# fixmate
 		echo "Fill in mate coordinates"
-		bam_fixmate=${data_dir}/${sample}.fixmate.bam
+		bam_fixmate=${data_dir}/bam/${sample}.fixmate.bam
 		if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then  
 			samtools fixmate -m --threads $nthreads $bam_nsort $bam_fixmate
 		else
@@ -180,7 +182,7 @@ for bam in "${!bams[@]}"; do
 
 		# sort bam by coordinate
 		echo "Sort alignment by coordinate"
-		bam_csort=${data_dir}/${sample}.csort.bam
+		bam_csort=${data_dir}/bam/${sample}.csort.bam
 		if [[ $overwrite == True ]] || [[ ! -e $bam_csort ]]; then  
 			samtools sort --threads $nthreads -o $bam_csort $bam_fixmate
 		else
@@ -191,7 +193,7 @@ for bam in "${!bams[@]}"; do
 	
    # remove duplicates
 	echo "Remove duplicates"
-	bam_rmdup=${data_dir}/${sample}.rmdup.bam
+	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		samtools markdup -r --threads $nthreads $bam $bam_rmdup
 	else
@@ -208,7 +210,7 @@ for bam in "${!bams[@]}"; do
 
 	# produce bigwig track
 	echo "Produce bigwig track"
-	bigwig=${data_dir}/${sample}.rpkm.bw
+	bigwig=${data_dir}/bigwig/${sample}.rpkm.bw
  	if [[ exerpiments[$sample] == "ChIP-seq" ]]; then center_reads_flag="--center_reads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
 	if [[ $overwrite == True ]] || [[ ! -e $bigwig ]]; then
 		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig
@@ -220,11 +222,10 @@ done
 # remove loaded genome from shared memory
 # STAR=/scratch/ngsvin/bin/mapping/STAR/STAR_2.6.1d/bin/Linux_x86_64_static/STAR
 STAR=STAR
-$STAR --genomeDir $star_index_dir --genomeLoad Remove --outFileNamePrefix ${data_dir}/log/removeGenomeLoad_${build}_
+$STAR --genomeDir $star_index_dir --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
 
 ### CLEANUP
-echo "Cleaning up: Removing all intermediate files except final bigwig, bam and links to original fastq file(s)."
-find $data_dir/ -type f -name "*.fastq.gz" -delete # remove merged fastq's, only keep links to seqcore
-find $data_dir/ -type f -name "*.bam" ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final sorted and rmduped bam
+find $data_dir/fastq/ -type f -delete # remove merged fastq's, only keep links to seqcore
+find bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final sorted and rmduped bam
 
 echo Done

@@ -55,7 +55,7 @@ outdir=${outfile%/*} # /path/to
 sample_name=${outfile_prefix##*/} # file
 log_dir=${outdir}/log
 mkdir -p $log_dir
-tmp=/scratch/local2/${sample_name}_tmp
+tmp=/scratch/local2/${sample_name}_tmp_${USER}
 [[ -e $tmp ]] && rm -rf $tmp # clear tmp folder if it exists
 
 # align reads

@@ -2,16 +2,20 @@
 
 ### Script to process ChIP-seq data from fastq to bigwig
 
-set -e # exit when any command fails
+set -eE # exit when any command fails (e), and allow error trapping (E)
 export PATH=/project/MDL_ChIPseq/process_sequencing_data/bin/:$PATH # add program PATHs to environmental variable
 shopt -s extglob # extended globbing. e.g. for expanding wildcards in variables
 
 # ---------------------------------------------------
-### Functions
+# Functions
 # ---------------------------------------------------
 
-usage()
-{
+# cleanup trap
+trap 'cleanup ${current_file}' ERR INT # if the script fails or is aborted by the user (CTRL+C), remove the file that is currently being written.
+cleanup() { if [[ $1 != "NA" ]]; then echo -e "\nRemoving $1"; rm -f $1; exit 0; fi }
+
+# script usage
+usage() {
 cat << EOF
 usage: $0 -d DATA_DIR -t DATA_TABLE -n NTHREADS [-o]
 
@@ -29,6 +33,7 @@ OPTIONS:
 EOF
 }
 
+# Print message if a file already exists
 file_exists() {
 	file=$(echo $1 | rev | cut -d'/' -f1,2 | rev) # trimmed path with only the last folder to avoid overcrowded print
     echo "$file  exists and will not be overwritten. (Set the -o option for overwriting existing files)"
@@ -164,7 +169,9 @@ for bam in "${!bams[@]}"; do
 			exit 1
 		fi
 		# align
+		current_file=$bam
 		star_align.sh -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
+		current_file=NA
 	else
 		file_exists $bam
 	fi
@@ -174,8 +181,10 @@ for bam in "${!bams[@]}"; do
 		# sort bam by name
 		echo "Sorting alignment by name"
 		bam_nsort=${data_dir}/bam/${sample}.nsort.bam
-		if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then  
+		if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then
+			current_file=$bam_nsort
 			samtools sort -n --threads $nthreads -o $bam_nsort $bam # -n flag for sorting by name
+			current_file=NA
 		else
 			file_exists $bam_nsort
 		fi
@@ -183,8 +192,10 @@ for bam in "${!bams[@]}"; do
 		# fixmate
 		echo "Filling in mate coordinates"
 		bam_fixmate=${data_dir}/bam/${sample}.fixmate.bam
-		if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then  
+		if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then
+			current_file=$bam_fixmate
 			samtools fixmate -m --threads $nthreads $bam_nsort $bam_fixmate
+			current_file=NA
 		else
 			file_exists $bam_fixmate
 		fi
@@ -193,7 +204,9 @@ for bam in "${!bams[@]}"; do
 		echo "Sorting alignment by coordinate"
 		bam_csort=${data_dir}/bam/${sample}.csort.bam
 		if [[ $overwrite == True ]] || [[ ! -e $bam_csort ]]; then  
+			current_file=$bam_csort
 			samtools sort --threads $nthreads -o $bam_csort $bam_fixmate
+			current_file=NA
 		else
 			file_exists $bam_csort
 		fi
@@ -204,7 +217,9 @@ for bam in "${!bams[@]}"; do
 	echo "Removing duplicates"
 	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
+		current_file=$bam_rmdup
 		samtools markdup -r --threads $nthreads $bam $bam_rmdup
+		current_file=NA
 	else
 		file_exists $bam_rmdup
 	fi
@@ -212,7 +227,9 @@ for bam in "${!bams[@]}"; do
 	# index bam
 	echo "Indexing bam-file"
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup.csi ]]; then
+		current_file=$bam_rmdup.csi
 		samtools index -c $bam_rmdup # index bam-file: use -c for .csi format instead of .bai, allowing for chromosome sizes larger than 500 Mb (e.g. carPer2.1)
+		current_file=NA
 	else
 		file_exists ${bam}.csi
 	fi
@@ -222,7 +239,9 @@ for bam in "${!bams[@]}"; do
 	bigwig=${data_dir}/bigwig/${sample}.rpkm.bw
  	if [[ exerpiments[$sample] == "ChIP-seq" ]]; then center_reads_flag="--center_reads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
 	if [[ $overwrite == True ]] || [[ ! -e $bigwig ]]; then
+		current_file=$bigwig
 		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig
+		current_file=NA
 	else
 		file_exists $bigwig
 	fi

@@ -70,19 +70,22 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 		row=${row//$'\n'/} # and newlines from row string
 		arr=(${row//,/ }) # convert row string to array
 		if [[ ${header[0]} == "seqcore_link" ]]; then # parse in-house data table
+			data_source="mpimg"
 			seqcore_link=${arr[0]}
 			library_number=${arr[9]}
 			flow_cell=${arr[10]}
 		elif [[ ${header[0]} == "SRR_number" ]]; then # parse GEO data table
+			data_source="GEO"
 			SRR_number=${arr[0]}
 		fi
 		feature=${arr[1]}
 		tissue=${arr[2]}
 		stage=${arr[3]}
 		build=${arr[4]}
-		sample=${feature}_${tissue}_${stage}_${build}
 		condition=${arr[5]}
 		biological_replicate=${arr[6]}
+		sample=${feature}_${tissue}_${stage}_${build}_${condition}_${biological_replicate}
+		sample=$(sed -e 's/__/_/g' <<< $sample) # replace double '_' with single '_' (in case a particular column was left empty, e.g. tissue for ESC)
 		sequencing_type=${arr[7]}
 		sequencing_types[$sample]=$sequencing_type
 		experiments[$sample]=${arr[8]}
@@ -90,18 +93,30 @@ declare -A fastqs bams bigwigs experiments sequencing_types
 		
 		# create symbolic links for original fastq files
 		files=()
-		for read in "${reads[@]}"; do
-			file=$seqcore_link/mpimg_${library_number}*${flow_cell}_${read}*fastq.gz
-			link=${data_dir}/fastq/${feature}_${tissue}_${stage}_${build}_${flow_cell}_${read}.fastq.gz
-			if [[ $overwrite == True ]] || [[ ! -e $link ]]; then
-				ln -sf $file $link
-			else
-				file_exists $link
-			fi
+		if [[ $data_source == "mpimg" ]]; then
+			for read in "${reads[@]}"; do
+			    file=$seqcore_link/*${library_number}*${flow_cell}_${read}*fastq.gz
+				link=${data_dir}/fastq/${sample}_${flow_cell}_${read}.fastq.gz
+				if [[ $overwrite == True ]] || [[ ! -e $link ]]; then
+					ln -sf $file $link
+				else
+					file_exists $link
+				fi
+				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
+				fastqs[$fastq]+=$link,
+			done
+		elif [[ $data_source == "GEO" ]]; then
+			echo "Download $SRR_number from GEO"
+			fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
+			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
+				i=$(echo $read | tr -d -c 0-9)
+				fastq=${data_dir}/fastq/${sample}_${SRR_number}_${read}.fastq.gz
+				mv ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz $fastq
+				fastqs[$fastq]+=$fastq, # here, key and value are identical, GEO data must be 1 run per experiment
+			done
+		fi
+
 			# store the current link in an associative array with the name of the merged fastq as the key (in case of mutliple sequencing runs). Adding a comma allows to split them later.
-			fastq=${data_dir}/fastq/${feature}_${tissue}_${stage}_${build}_${read}.fastq.gz
-			fastqs[$fastq]+=$link,
-		done
 	done
 } < $data_table
 

@@ -1,4 +1,4 @@
-# process_sequencing_data
+# process_seq_data
 
 Pipeline for processing ChIP-seq and ATAC-seq data from fastq to bigwig for in-house data or from GEO
 

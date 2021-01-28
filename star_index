@@ -2,7 +2,7 @@
 
 ### This script creates the index for the STAR alignment method.
 
-[[ $# -ne 2 ]] && echo "Usage: ./star_index.sh genome.fasta nthreads" && exit 1
+[[ $# -ne 2 ]] && echo "Usage: prun mdl star_index genome.fasta nthreads" && exit 1
 
 fasta=$1
 n=$2

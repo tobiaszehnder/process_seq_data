@@ -5,7 +5,7 @@ set -e # exit when any command fails
 usage()
 {
 cat << EOF
-usage: ${0##*/} [options...] [R1.fastq.gz] [R2.fastq.gz (optional)]
+Usage: prun mdl ${0##*/} [options...] [R1.fastq.gz] [R2.fastq.gz (optional)]
 
 This script aligns fastq file(s) to a given genome.
 
@@ -38,7 +38,7 @@ fastq=$@ # read trailing arguments
 # check if index exists
 [[ ! -e $star_index_dir ]] && star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
 if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
-	echo "STAR genome not found. Either pass the folder with the STAR genome index files or create it from a fasta file using star_index.sh"
+	echo "STAR genome not found. Either pass the folder with the STAR genome index files or create it from a fasta file using star_index"
 	exit 1
 fi
 

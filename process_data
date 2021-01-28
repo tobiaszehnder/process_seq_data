@@ -17,15 +17,17 @@ cleanup() { if [[ $1 != "NA" ]]; then echo -e "\nRemoving $1"; rm -f $1; exit 0;
 # script usage
 usage() {
 cat << EOF
-usage: $0 -d DATA_DIR -t DATA_TABLE -n NTHREADS [-o]
+Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -n NTHREADS [-o]
 
 This script processes sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
 
 OPTIONS:
-   -d DATA_DIR   Path to your project data folder
+   -d DATA_DIR   Path to your project data folder.
+   	  			 The script will create three folders in that location (fastq / bam / bigwig) and store all files there.
 
    -t DATA_TABLE Path to your data table in comma-separated csv format
    	  	 Download template here: https://bit.ly/38VOMrc
+		 Ideally store this file in the location you specified as -d DATA_DIR
 
    -n NTHREADS   Number of parallel threads
  
@@ -166,12 +168,12 @@ for bam in "${!bams[@]}"; do
 			star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build
 			star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
 			if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
-				echo "STAR genome not found. Create it from a fasta file using star_index.sh"
+				echo "STAR genome not found. Create it from a fasta file using star_index"
 				exit 1
 			fi
 			# align
 			current_file=$bam
-			star_align.sh -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
+			star_align -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
 			current_file=NA
 		else
 			file_exists $bam

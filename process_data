@@ -17,21 +17,23 @@ cleanup() { if [[ $1 != "NA" ]]; then echo -e "\nRemoving $1"; rm -f $1; exit 0;
 # script usage
 usage() {
 cat << EOF
-Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -n NTHREADS [-o]
+Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -n NTHREADS [optional: -o -r]
 
 This script processes sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
 
 OPTIONS:
-   -d DATA_DIR   Path to your project data folder.
-   	  	 The script will create three folders in that location (fastq / bam / bigwig) and store all files there.
+   -d DATA_DIR		Path to your project data folder.
+      	  		The script will create three folders in that location (fastq / bam / bigwig) and store all files there.
 
-   -t DATA_TABLE Path to your data table in comma-separated csv format
-   	  	 Download template here: https://bit.ly/38VOMrc
-		 Ideally store this file in the location you specified as -d DATA_DIR
+   -t DATA_TABLE 	Path to your data table in comma-separated csv format
+   	  	  	Download template here: https://bit.ly/38VOMrc
+			Ideally store this file in the location you specified as -d DATA_DIR
 
-   -n NTHREADS   Number of parallel threads
+   -n NTHREADS   	Number of parallel threads
  
-   -o OVERWRITE	 Flag for overwriting existing files
+   -o OVERWRITE		Flag for overwriting existing files
+
+   -r REMOVE_FASTQ	Flag for removing all fastq files after job is done
 EOF
 }
 
@@ -46,12 +48,14 @@ file_exists() {
 # parse arguments (more info at https://ndench.github.io/bash/parsing-bash-flags)
 nthreads=1
 overwrite=False
-while getopts “:d:t:n:o” OPTION; do
+remove_fastq=False
+while getopts “:d:t:n:or” OPTION; do
 	case $OPTION in
 		d) data_dir=$(readlink -f $OPTARG) ;; # full path
 		t) data_table=$OPTARG ;;
 		n) nthreads=$OPTARG ;;
 		o) overwrite=True ;;
+		r) remove_fastq=True ;;
 		?) usage; exit 1 ;;
  	esac
 done
@@ -78,14 +82,17 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		arr=(${row//,/ }) # convert row string to array
 		if [[ -d ${arr[0]} ]]; then # in-house data, valid path to directory
 			data_source="mpimg"
-			seqcore_link=${arr[0]}
+			seqcore_folder=${arr[0]}
 			library_number=${arr[9]}
 			flow_cell=${arr[10]}
 		elif [[ ${arr[0]} == SRR* ]]; then # GEO data
 			data_source="GEO"
 			SRR_number=${arr[0]}
+		elif [[ ${arr[0]} == ENC* ]]; then # ENCODE data
+			data_source="ENCODE"
+			ENC_accession=${arr[0]}
 		else
-			echo "Error: Value in first column must either be a valid path to the (seqcore) directory containing the fastqs, or a SRR number" && exit 1
+			echo "Error: Value in first column must either be a valid path to the seqcore directory containing the fastqs, a SRR number from GEO, or an ENCODE experiment accession number" && exit 1
 		fi
 		feature=${arr[1]}
 		tissue=${arr[2]}
@@ -106,7 +113,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		# create symbolic links for original fastq files
 		if [[ $data_source == "mpimg" ]]; then
 			for read in "${reads[@]}"; do
-			    file=$seqcore_link/*${library_number}*${flow_cell}_${read}*fastq.gz
+			    file=$seqcore_folder/*${library_number}*${flow_cell}_${read}*fastq.gz
 				link=${data_dir}/fastq/${sample}_${flow_cell}_${read}.fastq.gz
 				if [[ $overwrite == True ]] || [[ ! -e $link ]]; then
 					ln -sf $file $link
@@ -117,7 +124,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 				fastqs[$fastq]+=$link, # store the current link in an associative array with the name of the merged fastq as the key (in case of mutliple sequencing runs). Adding a comma allows to split them later.
 			done
 		elif [[ $data_source == "GEO" ]]; then
-			echo "Download $SRR_number from GEO"
+			echo "Downloading $SRR_number from GEO"
 			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}_?.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
 				fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
 			fi
@@ -129,7 +136,20 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 				else
 					file_exists $fastq
 				fi
-				fastqs[$fastq]+=$fastq, # here, key and value are identical, GEO data must be 1 run per experiment
+				fastqs[$fastq]+=$fastq, # here, key and value are identical except for the comma in the value, because GEO data is 1 run per experiment without indication of flow-cell number
+			done
+		elif [[ $data_source == "ENCODE" ]]; then
+			for read in "${reads[@]}"; do
+				ENC_url=$(prun mdl get_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}"))
+				echo "Downloading ${ENC_url} from ENCODE"
+				curl -O -L -o ${data_dir}/fastq/${ENC_url##*/} $ENC_url
+				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
+				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
+					ln ${ENC_url##*/} $fastq
+				else
+					file_exists $fastq
+				fi				
+			  	fastqs[$fastq]+=$fastq, # here, key and value are identical except for the comma in the value, because ENCODE data is 1 run per experiment without indication of flow-cell number
 			done
 		fi
 	done
@@ -141,7 +161,8 @@ for fastq in "${!fastqs[@]}"; do
 	if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
 		n=$(awk -F, '{print NF-1}' <<< "${fastqs[$fastq]}") # count the number of commas (i.e. the number of sequencing runs)
 		if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
-			mv ${fastqs[$fastq]//$','/} $fastq
+			single_fastq=$(sed 's/,//g' <<< "${fastqs[$fastq]}")
+			[[ $single_fastq != $fastq ]] && mv $single_fastq $fastq
 		elif [[ $n == 2 ]]; then # multiple runs: merge and remove flow-cell numbers
 			[[ $merge_print_flag == 1 ]] && echo -ne "\rMerging fastq files from multiple sequencing runs" && merge_print_flag=1
 			cat ${fastqs[$fastq]//$','/$' '} > $fastq
@@ -150,7 +171,7 @@ for fastq in "${!fastqs[@]}"; do
 		file_exists $fastq
 	fi
 	# store the current fastq in an associative array with the bamfile as the key. Adding a comma allows to split potential paired-end fastqs later (R1 and R2).
-	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' -e 's/fastq/bam/g' <<< "$fastq")
+	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' -e 's/\/fastq\//\/bam\//g' <<< "$fastq")
 	bams[$bam]+=$fastq,
 done
 
@@ -254,7 +275,8 @@ done
 
 ### CLEANUP
 echo -e "\nCleaning up directory: Delete intermediate files"
-find $data_dir/fastq/ -type f ! -name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore and downloaded SRR's
-find bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
+find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore files and downloaded SRR's
+find ${data_dir}/bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
+[[ $remove_fastq == True ]] && echo "Removing all fastq files" && rm -r ${data_dir}/fastq # remove all fastq if flag is set
 
 echo Done

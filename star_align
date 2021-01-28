@@ -23,7 +23,7 @@ EOF
 
 # parse arguments (more info at https://ndench.github.io/bash/parsing-bash-flags)
 nthreads=1
-while getopts “:b:i:n:o:f:” OPTION; do
+while getopts “:b:i:n:o:” OPTION; do
 	case $OPTION in
 		b) build=$OPTARG ;;
 		i) star_index_dir=$(readlink -f $OPTARG) ;; # full path

@@ -60,7 +60,7 @@ tmp=/scratch/local2/${sample_name}_tmp_${USER}
 
 # align reads
 STAR --runMode alignReads \
-	 --genomeLoad LoadAndKeep \
+	 --genomeLoad NoSharedMemory \
 	 --genomeDir $star_index_dir \
 	 --runThreadN $nthreads \
 	 --readFilesIn $fastq \

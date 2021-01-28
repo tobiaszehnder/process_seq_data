@@ -28,7 +28,7 @@ OPTIONS:
    	  	 Download template here: https://bit.ly/38VOMrc
 
    -n NTHREADS   Number of parallel threads
-
+ 
    -o OVERWRITE	 Flag for overwriting existing files
 EOF
 }
@@ -158,7 +158,7 @@ for bam in "${!bams[@]}"; do
 	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
 	build=${builds[$sample]}
 	echo -e "\n$sample:"
-	if [[ ! -e $bam_rmdup ]]; then
+	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
 		echo "Aligning reads"
 		if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
@@ -240,7 +240,7 @@ for bam in "${!bams[@]}"; do
 	# produce bigwig track
 	echo "Producing bigwig track"
 	bigwig=${data_dir}/bigwig/${sample}.rpkm.bw
- 	if [[ exerpiments[$sample] == "ChIP-seq" ]]; then center_reads_flag="--center_reads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
+ 	if [[ ${experiments[$sample]} == "ChIP-seq" ]]; then center_reads_flag="--centerReads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
 	if [[ $overwrite == True ]] || [[ ! -e $bigwig ]]; then
 		current_file=$bigwig
 		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig
@@ -249,17 +249,6 @@ for bam in "${!bams[@]}"; do
 		file_exists $bigwig
 	fi
 done
-
-# remove loaded genome(s) from shared memory
-# STAR=/scratch/ngsvin/bin/mapping/STAR/STAR_2.6.1d/bin/Linux_x86_64_static/STAR
-if [[ ${#star_index_dirs[@]} -gt 0 ]]; then
-	echo -e "\nRemoving STAR indices from shared memory"
-	STAR=STAR
-	for build in "${!star_index_dirs[@]}"; do
-		echo $build
-		$STAR --genomeDir ${star_index_dirs[$build]} --genomeLoad Remove --outFileNamePrefix ${data_dir}/bam/log/removeGenomeLoad_${build}_
-	done
-fi
 
 ### CLEANUP
 echo -e "\nCleaning up directory: Delete intermediate files"

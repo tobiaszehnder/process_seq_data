@@ -32,19 +32,13 @@ while getopts “:b:i:n:o:f:” OPTION; do
 		?) usage; exit 1 ;;
  	esac
 done
-shift $(( OPTIND - 1 ))
+shift $(( OPTIND - 1 )) # shift to unread trailing arguments
 fastq=$@ # read trailing arguments
-
-# throw error if not all mandatory arguments are passed
-if [ -z ${build+x} ] || [ -z ${nthreads+x} ] || [ -z ${outfile+x} ]; then
-	usage
-	exit 1
-fi
 
 # check if index exists
 [[ -z ${star_index_dir+x} ]] && star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
 if [[ ! -e $star_index_dir ]]; then # if there is no index yet at that location, exit and prompt the user to create index first
-	echo "STAR genome not found. Either pass the folder with the STAR genome index files or create it from a fasta file using star_index"
+	echo "STAR genome not found. Either pass the folder with the STAR genome index files or create it from a fasta file by running 'prun mdl star_index [genome.fa]'"
 	exit 1
 fi
 

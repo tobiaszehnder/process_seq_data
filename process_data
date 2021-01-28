@@ -23,7 +23,7 @@ This script processes sequencing data from ChIP-seq and chromatin accessibility 
 
 OPTIONS:
    -d DATA_DIR   Path to your project data folder.
-   	  			 The script will create three folders in that location (fastq / bam / bigwig) and store all files there.
+   	  	 The script will create three folders in that location (fastq / bam / bigwig) and store all files there.
 
    -t DATA_TABLE Path to your data table in comma-separated csv format
    	  	 Download template here: https://bit.ly/38VOMrc
@@ -165,15 +165,15 @@ for bam in "${!bams[@]}"; do
 		echo "Aligning reads"
 		if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
 			# check if STAR genome index exists
-			star_index_dir=/project/MDL_ChIPseq/process_sequencing_data/genome/star_index/$build
+			star_index_dir=/project/MDL_ChIPseq/process_seq_data/genome/star_index/$build
 			star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
 			if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
-				echo "STAR genome not found. Create it from a fasta file using star_index"
+				echo "STAR genome not found. Create it from a fasta file by running 'prun mdl star_index [genome.fa]'"
 				exit 1
 			fi
 			# align
 			current_file=$bam
-			star_align -b $build -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
+			prun mdl star_align -b $build -i $star_index_dir -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
 			current_file=NA
 		else
 			file_exists $bam

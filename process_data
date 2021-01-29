@@ -82,8 +82,8 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		if [[ -d ${arr[0]} ]]; then # in-house data, valid path to directory
 			data_source="mpimg"
 			seqcore_folder=${arr[0]}
-			library_number=${arr[10]}
-			flow_cell=${arr[11]}
+			library_number=${arr[9]}
+			flow_cell=${arr[10]}
 		elif [[ ${arr[0]} == SRR* ]]; then # GEO data
 			data_source="GEO"
 			SRR_number=${arr[0]}
@@ -96,10 +96,10 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		feature=${arr[1]}
 		tissue=${arr[2]}
 		stage=${arr[3]}
-		species=${arr[4]}
-		build=${arr[5]}
-		condition=${arr[6]}
-		biological_replicate=${arr[7]}
+		build=${arr[4]}
+		species=$(sed -e 's/[0-9]//g' <<< "$build")
+		condition=${arr[5]}
+		biological_replicate=${arr[6]}
 		if [[ $biological_replicate != Rep* ]]; then echo "Error: Values in column 'biological_replicate' must start with 'Rep', e.g. 'Rep1'." && exit 1; fi
 		sample=${feature}_${tissue}_${stage}_${species}_${build}_${condition}_${biological_replicate}
 		sample=$(sed -e 's/_NA_/_/g' <<< "$sample") # remove occurrences of 'NA' from sample name (in case a particular column was left empty, e.g. tissue for ESC)
@@ -110,9 +110,9 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		bam=${data_dir}/bam/${bam_sample}.bam
  		species_dict[$build]=species
 		builds[$bam_sample]=$build
-		sequencing_type=${arr[8]}
+		sequencing_type=${arr[7]}
 		sequencing_types[$bam_sample]=$sequencing_type
-		experiments[$bam_sample]=${arr[9]}
+		experiments[$bam_sample]=${arr[8]}
 		if [[ ${experiments[$bam_sample]} != "ChIP-seq" ]] && [[ ${experiments[$bam_sample]} != "chromatin-accessibility" ]]; then echo "Error: Values in column 'experiment' must be from the following list: ['ChIP-seq', 'chromatin-accessibility']" && exit 1; fi
 		if [[ $sequencing_type == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_type == 'single-end' ]]; then reads=( "R1" ); else echo "sequencing_type must be either 'single-end' or 'paired-end'" && exit 1; fi
 		

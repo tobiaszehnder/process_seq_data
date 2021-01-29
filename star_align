@@ -13,7 +13,7 @@ OPTIONS:
    -b GENOME_BUILD		Genome build (e.g. mm10)
 
    -i STAR_GENOME_INDEX Path to the STAR genome index directory
-   	  					Only required if there isn't already one for the passed build at /project/MDL_ChIPseq/genome_data/star_index
+   	  					Only required if there isn't already one for the passed build at /project/MDL_ChIPseq/data/genome/star_index
    				 
    -n NTHREADS			Number of parallel threads
 
@@ -36,7 +36,7 @@ shift $(( OPTIND - 1 )) # shift to unread trailing arguments
 fastq=$@ # read trailing arguments
 
 # check if index exists
-[[ -z ${star_index_dir+x} ]] && star_index_dir=/project/MDL_ChIPseq/genome_data/star_index/$build # if star_index_dir was not passed, set it according to passed build
+[[ -z ${star_index_dir+x} ]] && star_index_dir=/project/MDL_ChIPseq/data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
 if [[ ! -e $star_index_dir ]]; then # if there is no index yet at that location, exit and prompt the user to create index first
 	echo "STAR genome not found. Either pass the folder with the STAR genome index files or create it from a fasta file by running 'prun mdl star_index [genome.fa]'"
 	exit 1

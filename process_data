@@ -224,7 +224,7 @@ for bam in "${!bams[@]}"; do
 		echo "Aligning reads"
 		if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
 			# check if STAR genome index exists
-			star_index_dir=/project/MDL_ChIPseq/genome_data/star_index/$build
+			star_index_dir=/project/MDL_ChIPseq/data/genome/star_index/$build
 			star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
 			if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
 				echo "STAR genome not found. Create it from a fasta file by running 'prun mdl star_index [genome.fa]'"
@@ -279,7 +279,7 @@ for bam in "${!bams[@]}"; do
 		echo "Removing duplicates"
 		if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 			current_file=$bam_rmdup
-			samtools markdup -r --threads $nthreads $bam $bam_rmdup
+			samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out
 			current_file=NA
 		else
 			file_exists $bam_rmdup
@@ -317,4 +317,7 @@ find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' ! -name 'ENC*fastq.gz' -d
 find ${data_dir}/bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 [[ $remove_fastq == True ]] && echo "Removing all fastq files" && rm -r ${data_dir}/fastq # remove all fastq if flag is set
 
-echo Done
+echo "Read mapping statistics are located in ${data_dir}/bam/\*.Log.final.out"
+echo "Read duplicate statistics are located in ${data_dir}/bam/\*.Log.rmdup.out"
+
+echo -e "\nDone"

@@ -3,7 +3,6 @@
 ### Script to process ChIP-seq data from fastq to bigwig
 
 set -eE # exit when any command fails (e), and allow error trapping (E)
-export PATH=/project/MDL_ChIPseq/process_sequencing_data/bin/:$PATH # add program PATHs to environmental variable
 shopt -s extglob # extended globbing. e.g. for expanding wildcards in variables
 
 # ---------------------------------------------------
@@ -83,8 +82,8 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		if [[ -d ${arr[0]} ]]; then # in-house data, valid path to directory
 			data_source="mpimg"
 			seqcore_folder=${arr[0]}
-			library_number=${arr[9]}
-			flow_cell=${arr[10]}
+			library_number=${arr[10]}
+			flow_cell=${arr[11]}
 		elif [[ ${arr[0]} == SRR* ]]; then # GEO data
 			data_source="GEO"
 			SRR_number=${arr[0]}
@@ -97,31 +96,39 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		feature=${arr[1]}
 		tissue=${arr[2]}
 		stage=${arr[3]}
-		build=${arr[4]}
-		condition=${arr[5]}
-		biological_replicate=${arr[6]}
-		if [[ $biological_replicate != Rep* ]]; then echo "Error: Values in column 'biological_replicate' must start with 'Rep', e.g. 'Rep1'." && exit 1; fi   
-		sample=${feature}_${tissue}_${stage}_${build}_${condition}_${biological_replicate}
-		sample=$(sed -e 's/_NA_/_/g' <<< $sample) # remove occurrences of 'NA' from sample name (in case a particular column was left empty, e.g. tissue for ESC)
-		builds[$sample]=$build
-		sequencing_type=${arr[7]}
-		sequencing_types[$sample]=$sequencing_type
-		experiments[$sample]=${arr[8]}
-		if [[ ${experiments[$sample]} != "ChIP-seq" ]] && [[ ${experiments[$sample]} != "chromatin-accessibility" ]]; then echo "Error: Values in column 'experiment' must be from the following list: ['ChIP-seq', 'chromatin-accessibility']" && exit 1; fi
+		species=${arr[4]}
+		build=${arr[5]}
+		condition=${arr[6]}
+		biological_replicate=${arr[7]}
+		if [[ $biological_replicate != Rep* ]]; then echo "Error: Values in column 'biological_replicate' must start with 'Rep', e.g. 'Rep1'." && exit 1; fi
+		sample=${feature}_${tissue}_${stage}_${species}_${build}_${condition}_${biological_replicate}
+		sample=$(sed -e 's/_NA_/_/g' <<< "$sample") # remove occurrences of 'NA' from sample name (in case a particular column was left empty, e.g. tissue for ESC)
+		fastq_sample=${feature}_${tissue}_${stage}_${species}_${condition}_${biological_replicate} # the fastq_sample contains the species name instead of the build name
+		fastq_sample=$(sed -e 's/_NA_/_/g' <<< "$fastq_sample")
+		bam_sample=${feature}_${tissue}_${stage}_${build}_${condition}_${biological_replicate} # the bam_sample contains the build name instead of the species name
+		bam_sample=$(sed -e 's/_NA_/_/g' <<< "$bam_sample")
+		bam=${data_dir}/bam/${bam_sample}.bam
+ 		species_dict[$build]=species
+		builds[$bam_sample]=$build
+		sequencing_type=${arr[8]}
+		sequencing_types[$bam_sample]=$sequencing_type
+		experiments[$bam_sample]=${arr[9]}
+		if [[ ${experiments[$bam_sample]} != "ChIP-seq" ]] && [[ ${experiments[$bam_sample]} != "chromatin-accessibility" ]]; then echo "Error: Values in column 'experiment' must be from the following list: ['ChIP-seq', 'chromatin-accessibility']" && exit 1; fi
 		if [[ $sequencing_type == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_type == 'single-end' ]]; then reads=( "R1" ); else echo "sequencing_type must be either 'single-end' or 'paired-end'" && exit 1; fi
 		
 		# create symbolic links for original fastq files
 		if [[ $data_source == "mpimg" ]]; then
 			for read in "${reads[@]}"; do
 			    file=$seqcore_folder/*${library_number}*${flow_cell}_${read}*fastq.gz
-				link=${data_dir}/fastq/${sample}_${flow_cell}_${read}.fastq.gz
+				link=${data_dir}/fastq/${fastq_sample}_${flow_cell}_${read}.fastq.gz
 				if [[ $overwrite == True ]] || [[ ! -e $link ]]; then
 					ln -sf $file $link
 				else
 					file_exists $link
 				fi
-				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
+				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
 				fastqs[$fastq]+=$link, # store the current link in an associative array with the name of the merged fastq as the key (in case of mutliple sequencing runs). Adding a comma allows to split them later.
+				bams[$bam]+=$link,
 			done
 		elif [[ $data_source == "GEO" ]]; then
 			echo "Downloading $SRR_number from GEO"
@@ -130,34 +137,45 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
 				i=$(echo $read | tr -d -c 0-9)
-				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
+				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
 				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
 					ln -sf ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz $fastq
 				else
 					file_exists $fastq
 				fi
 				fastqs[$fastq]+=$fastq, # here, key and value are identical except for the comma in the value, because GEO data is 1 run per experiment without indication of flow-cell number
+				bams[$bam]+=$bam,
 			done
 		elif [[ $data_source == "ENCODE" ]]; then
 			for read in "${reads[@]}"; do
 				ENC_url=$(prun mdl get_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}"))
+				ENC_file=${data_dir}/fastq/${ENC_url##*/}
 				echo "Downloading ${ENC_url} from ENCODE"
-				curl -O -L -o ${data_dir}/fastq/${ENC_url##*/} $ENC_url
-				fastq=${data_dir}/fastq/${sample}_${read}.fastq.gz
+				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
+				if [[ $overwrite == True ]] || [[ ! -e  $ENC_file ]]; then
+					curl -o $ENC_file -O -L $ENC_url
+				else
+					file_exists $ENC_file
+				fi
+				echo $fastq
 				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
-					ln ${ENC_url##*/} $fastq
+					ln -sf $ENC_file $fastq
 				else
 					file_exists $fastq
 				fi				
 			  	fastqs[$fastq]+=$fastq, # here, key and value are identical except for the comma in the value, because ENCODE data is 1 run per experiment without indication of flow-cell number
+				bams[$bam]+=$fastq,
 			done
 		fi
 	done
 } < $data_table
 
 # merge fastq's of potential multiple sequencing runs
-merge_print_flag=0 # such that the message about merging the fastq files is only printed once, and only if any fastqs are merged.
-for fastq in "${!fastqs[@]}"; do
+for bam in "${!bams[@]}"; do
+	bam_sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev)
+	build=$builds[$bam_sample]
+	species=$species_dict[$build]
+	fastq=$(sed -e 's/$build/$species/g' -e 's/\.bam/\.fastq/g' -e 's/\/bam\//\/fastq\//g' <<< "$bam")
 	if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
 		n=$(awk -F, '{print NF-1}' <<< "${fastqs[$fastq]}") # count the number of commas (i.e. the number of sequencing runs)
 		if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
@@ -170,23 +188,43 @@ for fastq in "${!fastqs[@]}"; do
 	else
 		file_exists $fastq
 	fi
-	# store the current fastq in an associative array with the bamfile as the key. Adding a comma allows to split potential paired-end fastqs later (R1 and R2).
-	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' -e 's/\/fastq\//\/bam\//g' <<< "$fastq")
-	bams[$bam]+=$fastq,
 done
 
+# # merge fastq's of potential multiple sequencing runs
+# merge_print_flag=0 # such that the message about merging the fastq files is only printed once, and only if any fastqs are merged.
+# for fastq in "${!fastqs[@]}"; do
+# 	if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
+# 		n=$(awk -F, '{print NF-1}' <<< "${fastqs[$fastq]}") # count the number of commas (i.e. the number of sequencing runs)
+# 		if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
+# 			single_fastq=$(sed 's/,//g' <<< "${fastqs[$fastq]}")
+# 			[[ $single_fastq != $fastq ]] && mv $single_fastq $fastq
+# 		elif [[ $n == 2 ]]; then # multiple runs: merge and remove flow-cell numbers
+# 			[[ $merge_print_flag == 1 ]] && echo -ne "\rMerging fastq files from multiple sequencing runs" && merge_print_flag=1
+# 			cat ${fastqs[$fastq]//$','/$' '} > $fastq
+# 		fi
+# 	else
+# 		file_exists $fastq
+# 	fi
+# 	# store the current fastq in an associative array with the bamfile as the key. Adding a comma allows to split potential paired-end fastqs later (R1 and R2).
+# 	fastq_sample=$(sed -e 's/_R.\.fastq//g' <<< "$fastq" | rev | cut -f1 -d/ | rev)
+# 	build=${builds[$sample]}
+# 	bam=$(sed -e 's/_R.\.fastq.gz/\.bam/g' -e 's/\/fastq\//\/bam\//g' <<< "$fastq")
+# 	bams[$bam]+=$fastq,
+# done
+
 # Align data and produce bigwig tracks
+# for bam in "${!bams[@]}"; do
 for bam in "${!bams[@]}"; do
-	sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev)
-	bam_rmdup=${data_dir}/bam/${sample}.rmdup.bam
-	build=${builds[$sample]}
-	echo -e "\n$sample:"
+	bam_sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev) # here, sample contains the build instead of the species
+	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
+	build=${builds[$bam_sample]}
+	echo -e "\n${bam_sample}:"
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
 		echo "Aligning reads"
 		if [[ $overwrite == True ]] || [[ ! -e $bam ]]; then
 			# check if STAR genome index exists
-			star_index_dir=/project/MDL_ChIPseq/process_seq_data/genome/star_index/$build
+			star_index_dir=/project/MDL_ChIPseq/genome_data/star_index/$build
 			star_index_dirs[$build]=$star_index_dir # for the unloading at the end of the script
 			if [[ ! -e $star_index_dir ]]; then # if it still does not exist, exit and prompt the user to create index first
 				echo "STAR genome not found. Create it from a fasta file by running 'prun mdl star_index [genome.fa]'"
@@ -201,10 +239,10 @@ for bam in "${!bams[@]}"; do
 		fi
 
 		# fill in mate coordinates for paired-end. this requires the bam to be sorted by name. later, markdup again requires the bam to be sorted by coordinate, which we need two steps of sorting here.
-		if [[ ${sequencing_types[$sample]} == "paired-end" ]]; then
+		if [[ ${sequencing_types[$bam_sample]} == "paired-end" ]]; then
 			# sort bam by name
 			echo "Sorting alignment by name"
-			bam_nsort=${data_dir}/bam/${sample}.nsort.bam
+			bam_nsort=${data_dir}/bam/${bam_sample}.nsort.bam
 			if [[ $overwrite == True ]] || [[ ! -e $bam_nsort ]]; then
 				current_file=$bam_nsort
 				samtools sort -n --threads $nthreads -o $bam_nsort $bam # -n flag for sorting by name
@@ -215,7 +253,7 @@ for bam in "${!bams[@]}"; do
 
 			# fixmate
 			echo "Filling in mate coordinates"
-			bam_fixmate=${data_dir}/bam/${sample}.fixmate.bam
+			bam_fixmate=${data_dir}/bam/${bam_sample}.fixmate.bam
 			if [[ $overwrite == True ]] || [[ ! -e $bam_fixmate ]]; then
 				current_file=$bam_fixmate
 				samtools fixmate -m --threads $nthreads $bam_nsort $bam_fixmate
@@ -226,7 +264,7 @@ for bam in "${!bams[@]}"; do
 
 			# sort bam by coordinate
 			echo "Sorting alignment by coordinate"
-			bam_csort=${data_dir}/bam/${sample}.csort.bam
+			bam_csort=${data_dir}/bam/${bam_sample}.csort.bam
 			if [[ $overwrite == True ]] || [[ ! -e $bam_csort ]]; then  
 				current_file=$bam_csort
 				samtools sort --threads $nthreads -o $bam_csort $bam_fixmate
@@ -262,8 +300,8 @@ for bam in "${!bams[@]}"; do
 
 	# produce bigwig track
 	echo "Producing bigwig track"
-	bigwig=${data_dir}/bigwig/${sample}.rpkm.bw
- 	if [[ ${experiments[$sample]} == "ChIP-seq" ]]; then center_reads_flag="--centerReads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
+	bigwig=${data_dir}/bigwig/${bam_sample}.rpkm.bw
+ 	if [[ ${experiments[$bam_sample]} == "ChIP-seq" ]]; then center_reads_flag="--centerReads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
 	if [[ $overwrite == True ]] || [[ ! -e $bigwig ]]; then
 		current_file=$bigwig
 		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig
@@ -275,7 +313,7 @@ done
 
 ### CLEANUP
 echo -e "\nCleaning up directory: Delete intermediate files"
-find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore files and downloaded SRR's
+find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' ! -name 'ENC*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore files and downloaded SRR's
 find ${data_dir}/bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 [[ $remove_fastq == True ]] && echo "Removing all fastq files" && rm -r ${data_dir}/fastq # remove all fastq if flag is set
 

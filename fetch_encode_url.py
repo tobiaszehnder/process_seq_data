@@ -11,17 +11,19 @@ def get(resource, url='https://www.encodeproject.org/{}/?format=json', headers={
 
 def format(file):
     return 'https://www.encodeproject.org' + file['href']
-  
-def get_exp(exp_acc, biol_rep, read):
+
+def get_exp(exp_acc, biol_rep, read, sequencing_type):
     response = get(os.path.join('experiments/', exp_acc))
-    controls = set()
     for file in response['files']:
         if (file['file_type'] == 'fastq'):
-            if (int(file['replicate']['biological_replicate_number'])==biol_rep) & (int(file['paired_end'])==read):
+            if (sequencing_type=='paired_end'):
+                if (int(file['replicate']['biological_replicate_number'])==biol_rep) & (int(file[sequencing_type])==read):
+                    return format(file)
+            elif (sequencing_type=='single_end') & (int(file['replicate']['biological_replicate_number'])==biol_rep):
                 return format(file)
 
 def main():
-    if not len(sys.argv) == 4:
+    if not len(sys.argv) == 5:
         msg = """Usage: python get_encode_url.py <Accession Number> <Biological Replicate> <Read>\n
 Accession Number\tMust be the one for the entire EXPERIMENT, not for the library, and not for the single fastq file.
 Biological Replicate\tInteger number of biological replicate (1, 2, ...)
@@ -30,9 +32,10 @@ Example: python get_encode_url.py ENCSR255XTC 1 2
 """
         print(msg)
         sys.exit(0)
-    _, exp_acc, biol_rep, read = sys.argv
-
-    enc_url=get_exp(exp_acc, int(biol_rep), int(read))
+    _, exp_acc, biol_rep, read, sequencing_type = sys.argv
+    sequencing_type = sequencing_type.replace('-','_')
+    
+    enc_url=get_exp(exp_acc, int(biol_rep), int(read), sequencing_type)
     print(enc_url)
     return
      

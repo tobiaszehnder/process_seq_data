@@ -148,7 +148,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			done
 		elif [[ $data_source == "ENCODE" ]]; then
 			for read in "${reads[@]}"; do
-				ENC_url=$(prun mdl get_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}"))
+				ENC_url=$(prun mdl fetch_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}") $sequencing_type)
 				ENC_file=${data_dir}/fastq/${ENC_url##*/}
 				echo "Downloading ${ENC_url} from ENCODE"
 				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
@@ -317,7 +317,7 @@ find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' ! -name 'ENC*fastq.gz' -d
 find ${data_dir}/bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 [[ $remove_fastq == True ]] && echo "Removing all fastq files" && rm -r ${data_dir}/fastq # remove all fastq if flag is set
 
-echo "Read mapping statistics are located in ${data_dir}/bam/\*.Log.final.out"
-echo "Read duplicate statistics are located in ${data_dir}/bam/\*.Log.rmdup.out"
+echo -e "\nRead mapping statistics are located in ${data_dir}/bam/*.Log.final.out"
+echo "Read duplicate statistics are located in ${data_dir}/bam/*.Log.rmdup.out"
 
 echo -e "\nDone"

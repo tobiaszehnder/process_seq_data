@@ -16,7 +16,7 @@ cleanup() { if [[ $1 != "NA" ]]; then echo -e "\nRemoving $1"; rm -f $1; exit 0;
 # script usage
 usage() {
 cat << EOF
-Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -n NTHREADS [optional: -o -r]
+Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -n NTHREADS [optional: -o]
 
 This script processes sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
 

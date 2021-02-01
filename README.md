@@ -11,10 +11,10 @@ Workflow:
 2. Download the data table template and fill in the specifics of your data.
    https://bit.ly/38VOMrc
 
-3. Save the data table in comma-separated csv format
+3. Save the data table in comma-separated csv format.
 
-4. Run the pipeline: prun mdl process_data -d DATA_DIR -t DATA_TABLE -n NTHREADS [-o OVERWRITE]
-   For more details on how to run the pipeline, run 'prun mdl process_data' without arguments
+4. Run the pipeline: prun mdl process_data -d DATA_DIR -t DATA_TABLE -n NTHREADS [optional argument: -o OVERWRITE]
+   For more details on how to run the pipeline, run 'prun mdl process_data' without arguments.
 
 ---
 

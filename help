@@ -1,3 +1,3 @@
 #! /bin/bash
 
-cat /project/MDL_ChIPseq/process_seq_data/bin/README.md
+cat /project/process_seq_data/bin/README.md

@@ -2,16 +2,20 @@
 
 ### This script creates the index for the STAR alignment method.
 
-[[ $# -ne 2 ]] && echo "Usage: prun mdl star_index genome.fasta nthreads" && exit 1
+[[ $# -ne 3 ]] && echo "Usage: prun mdl star_index genome_build genome.fasta nthreads" && exit 1
 
-fasta=$1
-n=$2
-build=$(basename $fasta | cut -f 1 -d '.')
+build=$1
+fasta=$2
+n=$3
 index_dir=/project/MDL_ChIPseq/data/genome/star_index
 fasta_dir=/project/MDL_ChIPseq/data/genome/fasta
 
+# check if STAR genome index exists already
+[[ -e ${index_dir}/${build} ]] && echo "${index_dir}/${build} exists." && exit 0
+
+# link fasta in central fasta folder if it is not there yet
 [[ ! -e $fasta_dir/$build.fa ]] && ln -s $fasta $fasta_dir/$build.fa
-fasta=$fasta_dir/$build.fa 
+fasta=$fasta_dir/$build.fa
 
 STAR --runMode genomeGenerate \
 	 --genomeDir $index_dir/${build} \

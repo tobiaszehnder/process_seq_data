@@ -63,6 +63,7 @@ fi
 
 # create folder structures
 mkdir -p ${project_dir}/bam ${project_dir}/bigwig
+current_file=NA # file to be deleted when job aborts
 
 # parse data table and create fastq links
 declare -a data # array indexed by integers
@@ -121,7 +122,6 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 
 		# manage central data table: add row entry to $data or link existing data to user project folder and continue loop
 		data_row="${bam_sample}\t${id}\t${USER}" # row in data.tsv without the date
-		[[ $(grep -F "$data_row" ${data_dir}/data.tsv) != "" ]] && echo hallo
 		if [[ -f ${data_dir}/data.tsv ]]; then
 			if [[ $overwrite == False ]] && [[ $(grep -F "$data_row" ${data_dir}/data.tsv) != "" ]]; then # data entry does already exist, create links and continue loop
 				echo -e "\n${data_row}: Data exists and will be linked to your project folder\nSet the -o option for overwriting existing files"

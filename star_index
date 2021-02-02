@@ -6,7 +6,7 @@
 
 build=$1
 fasta=$2
-n=$3
+nthreads=$3
 index_dir=/project/MDL_ChIPseq/data/genome/star_index
 fasta_dir=/project/MDL_ChIPseq/data/genome/fasta
 
@@ -20,4 +20,4 @@ fasta=$fasta_dir/$build.fa
 STAR --runMode genomeGenerate \
 	 --genomeDir $index_dir/${build} \
 	 --genomeFastaFiles $fasta \
-	 --runThreadN $n
+	 --runThreadN $nthreads

@@ -66,8 +66,8 @@ mkdir -p ${project_dir}/bam ${project_dir}/bigwig
 current_file=NA # file to be deleted when job aborts
 
 # parse data table and create fastq links
-declare -a data # array indexed by integers
-declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_dirs # associative array indexed by strings
+declare -a skip # array indexed by integers
+declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_dirs data # associative array indexed by strings
 {
 	echo "Fetching data"
 	IFS="," read -r header || [ -n "$header" ] # read the header
@@ -121,19 +121,25 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		if [[ $sequencing_type == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_type == 'single-end' ]]; then reads=( "R1" ); else echo "sequencing_type must be either 'single-end' or 'paired-end'" && exit 1; fi
 
 		# manage central data table: add row entry to $data or link existing data to user project folder and continue loop
-		data_row="${bam_sample}\t${id}\t${USER}" # row in data.tsv without the date
+		data_row="${bam_sample}\t${id}" # row in data.tsv without the date
+		echo $data_row
 		if [[ -f ${data_dir}/data.tsv ]]; then
-			if [[ $overwrite == False ]] && [[ $(grep -F "$data_row" ${data_dir}/data.tsv) != "" ]]; then # data entry does already exist, create links and continue loop
+			echo 1
+			if [[ $overwrite == False ]] && [[ $(grep ${bam_sample}$'\t'${id} ${data_dir}/data.tsv) != "" ]]; then # data entry does already exist, create links and continue loop
+				echo 2
 				echo -e "\n${data_row}: Data exists and will be linked to your project folder\nSet the -o option for overwriting existing files"
 				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
 				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
 				[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
+				skip+=($bam_sample) # array containing all bam_samples that are already processed. use later to skip those bam_samples.
 				continue
 			else # data entry does not yet exist or must be overwritten
-				[[ ! "${data[@]}" =~ "${data_row}" ]] && data+=($data_row) # only if $data_row is not yet in $data (which can occur with multiple sequencing rows)
+				echo 3
+				[[ ! "${!data[@]}" =~ "$bam_sample" ]] && data[$bam_sample]=$data_row # only if $data_row is not yet in $data (which can occur with multiple sequencing rows)
 			fi
 		else # data table does not yet exist at all
-			[[ ! "${data[@]}" =~ "${data_row}" ]] && data+=($data_row)
+			echo 4
+			[[ ! "${!data[@]}" =~ "$bam_sample" ]] && data[$bam_sample]=$data_row
 		fi
 
 		# create symbolic links for original fastq files
@@ -154,7 +160,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		elif [[ $data_source == "GEO" ]]; then
 			echo "Downloading $SRR_number from GEO"
 			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}_?.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
-				fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
+				prun mdl parallel-fastq-dump -s $SRR_number -t $nthreads -O ${data_dir}/fastq/ --split-files --gzip # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
 			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
 				i=$(echo $read | tr -d -c 0-9)
@@ -197,6 +203,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 merge_print_flag=0 # merge_print_flag=0 # such that the message about merging the fastq files is only printed once, and only if any fastqs are merged
 for bam in "${!bams[@]}"; do
 	bam_sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev)
+	[[ "${skip[@]}" =~ "$bam_sample" ]] && continue # skip is an array containing all bam_samples that are already processed and have been linked to the user project folder.
 	build=${builds[$bam_sample]}
 	species=${species_dict[$build]}
 	if [[ $sequencing_types[$bam_sample] == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_types[$bam_sample] == 'single-end' ]]; then reads=( "R1" ); fi
@@ -221,8 +228,11 @@ done
 # for bam in "${!bams[@]}"; do
 for bam in "${!bams[@]}"; do
 	bam_sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev) # here, sample contains the build instead of the species
+	[[ "${skip[@]}" =~ "$bam_sample" ]] && continue # skip is an array containing all bam_samples that are already processed and have been linked to the user project folder.
 	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
 	build=${builds[$bam_sample]}
+	species=${species_dict[$build]}
+	data_dir=/project/MDL_ChIPseq/data/epigenome/${species} # set location for central data storage
 	echo -e "\n${bam_sample}:"
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
@@ -320,16 +330,15 @@ for bam in "${!bams[@]}"; do
 	[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
 	[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
 	[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
-done
 
-# manage central data table
-for data_row in ${data[@]}; do
+	# manage central data table
+	data_row="${data[$bam_sample]}\t${USER}"
 	if [[ -f ${data_dir}/data.tsv ]]; then
-		if [[ $overwrite == True ]] && [[ $(grep -F "$data_row" ${data_dir}/data.tsv) != "" ]]; then # row exists, overwrite with new date
+		if [[ $overwrite == True ]] && [[ $(grep -F ${data[$bam_sample]}$'\t'${USER} ${data_dir}/data.tsv) != "" ]]; then # row exists, overwrite with new date
 			original=$(sed -e 's/\//\\\//g' <<< "${data_row}") # put row in regex format for sed's find and replace
 			replacement=$(sed -e "s/$original/$original\\t$(date +%F)/g" <<< "$original") # replace the date
 			sed -i "s/${original}./${replacement}" "${data_dir}/data.tsv"
-		elif [[ $(grep -F "$data_row" ${data_dir}/data.tsv) == "" ]]; then # row does not exist yet, add
+		elif [[ $(grep -F "${data_row}" ${data_dir}/data.tsv) == "" ]]; then # row does not exist yet, add
 			echo -e "${data_row}\t$(date +%F)" >> ${data_dir}/data.tsv
 		fi
 	else # file does not exist yet, initialize

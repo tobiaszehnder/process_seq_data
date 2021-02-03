@@ -347,17 +347,15 @@ for bam in "${!bams[@]}"; do
 		echo -e "${data_row}\t$(date +%F)" >> ${data_dir}/data.tsv
 	fi
 	(head -n 1 ${data_dir}/data.tsv && tail -n +2 ${data_dir}/data.tsv | sort -k 1,1) > ${data_dir}data.tsv.sorted # sort table by feature (keep header first)
-	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv 
+	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv
+
+	# clean up
+	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
+	find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
+	find ${data_dir}/bam/ -type f -name ${}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 done
 
-### CLEANUP
-echo -e "\nCleaning up directory: Delete intermediate files"
-# find ${data_dir}/fastq/ -type f ! -name 'SRR*fastq.gz' ! -name 'ENC*fastq.gz' -delete # remove merged fastq's, only keep links to seqcore files and downloaded SRR's
-find ${data_dir}/fastq/ -type f -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
-find ${data_dir}/fastq/ -xtype l -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
-find ${data_dir}/bam/ -type f -name *.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
-
-echo -e "\nRead mapping statistics are located in ${data_dir}/bam/*.Log.final.out"
-echo "Read duplicate statistics are located in ${data_dir}/bam/*.Log.rmdup.out"
+echo -e "\nRead mapping statistics are located in ${data_dir}/bam/log/*.Log.final.out"
+echo "Read duplicate statistics are located in ${data_dir}/bam/log/*.Log.rmdup.out"
 
 echo -e "\nDone"

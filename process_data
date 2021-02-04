@@ -45,12 +45,14 @@ file_exists() {
 # parse arguments (more info at https://ndench.github.io/bash/parsing-bash-flags)
 nthreads=1
 overwrite=False
-while getopts “:d:t:n:o” OPTION; do
+local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
+while getopts “:d:t:n:ol” OPTION; do
 	case $OPTION in
 		d) project_dir=$(readlink -f $OPTARG) ;; # full path
 		t) data_table=$OPTARG ;;
 		n) nthreads=$OPTARG ;;
 		o) overwrite=True ;;
+		l) local=True ;;
 		?) usage; exit 1 ;;
  	esac
 done
@@ -69,7 +71,7 @@ current_file=NA # file to be deleted when job aborts
 declare -a skip # array indexed by integers
 declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_dirs species_dict data # associative array indexed by strings
 {
-	echo "Fetching data"
+	echo "Reading the data table"
 	IFS="," read -r header || [ -n "$header" ] # read the header
 	while IFS="," read -r row_raw || [ -n "$row_raw" ]; do # loop through rows
 		# parse row from table and assign its values to variables
@@ -109,7 +111,11 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		fastq_sample=$(sed -e 's/_NA_/_/g' <<< "$fastq_sample")
 		bam_sample=${feature}_${tissue}_${stage}_${build}_${condition}_${biological_replicate} # the bam_sample contains the build name instead of the species name
 		bam_sample=$(sed -e 's/_NA_/_/g' <<< "$bam_sample")
-		data_dir=/project/MDL_ChIPseq/data/epigenome/${species} # set location for central data storage
+		if [[ $local == False ]]; then
+			data_dir=/project/MDL_ChIPseq/data/epigenome/${species} # set location for central data storage
+		elif [[ $local == True ]]; then
+			data_dir=$project_dir
+		fi
 		mkdir -p $data_dir/fastq $data_dir/bam $data_dir/bigwig # create subfolders
 		bam=${data_dir}/bam/${bam_sample}.bam
  		species_dict[$build]=$species
@@ -155,7 +161,9 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		elif [[ $data_source == "GEO" ]]; then
 			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}_?.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
 				echo "Downloading $SRR_number from GEO"
-				prun mdl parallel-fastq-dump -s $SRR_number -t $nthreads -O ${data_dir}/fastq/ --split-files --gzip # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
+				# fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number
+				# prun mdl parallel-fastq-dump -s $SRR_number -t $nthreads -O ${data_dir}/fastq/ --split-files --gzip # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
+				prun mdl srr-curl $SRR_number ${data_dir}/fastq $sequencing_type
 			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
 				i=$(echo $read | tr -d -c 0-9)
@@ -201,17 +209,13 @@ for bam in "${!bams[@]}"; do
 	[[ "${skip[@]}" =~ "$bam_sample" ]] && continue # skip is an array containing all bam_samples that are already processed and have been linked to the user project folder.
 	build=${builds[$bam_sample]}
 	species=${species_dict[$build]}
-	echo $bam_sample
 	if [[ $sequencing_types[$bam_sample] == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_types[$bam_sample] == 'single-end' ]]; then reads=( "R1" ); fi
 	for read in ${reads[@]}; do
-		fastq=$(sed -e "s/${build}/${species}/g" -e "s/\.bam/\_${read}\.fastq.gz/g" -e 's/\/bam\//\/fastq\//g' <<< "$bam") # merged fastq
-		echo $fastq
+		fastq=$(sed -e "s/_${build}_/_${species}_/g" -e "s/\.bam/\_${read}\.fastq.gz/g" -e 's/\/bam\//\/fastq\//g' <<< "$bam") # merged fastq
 		if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
 			n=$(awk -F, '{print NF-1}' <<< "${fastqs[$fastq]}") # count the number of commas (i.e. the number of sequencing runs)
 			if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
 				single_fastq=$(sed 's/,//g' <<< "${fastqs[$fastq]}")
-				echo $single_fastq
-				echo $fastq
 				[[ $single_fastq != $fastq ]] && mv $single_fastq $fastq
 			elif [[ $n == 2 ]]; then # multiple runs: merge and remove flow-cell numbers
 				[[ $merge_print_flag == 0 ]] && echo "Merging fastq files from multiple sequencing runs" && merge_print_flag=1
@@ -231,8 +235,13 @@ for bam in "${!bams[@]}"; do
 	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
 	build=${builds[$bam_sample]}
 	species=${species_dict[$build]}
-	data_dir=/project/MDL_ChIPseq/data/epigenome/${species} # set location for central data storage
+	if [[ $local == False ]]; then
+		data_dir=/project/MDL_ChIPseq/data/epigenome/${species} # set location for central data storage
+	elif [[ $local == True ]]; then
+		data_dir=$project_dir
+	fi
 	echo -e "\n${bam_sample}:"
+	echo $bam_rmdup
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
 		echo "Aligning reads"
@@ -246,8 +255,6 @@ for bam in "${!bams[@]}"; do
 			fi
 			# align
 			current_file=$bam
-			echo $bam
-			echo ${bams[$bam]//','/' '}
 			prun mdl star_align -b $build -i $star_index_dir -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
 			current_file=NA
 		else
@@ -327,10 +334,12 @@ for bam in "${!bams[@]}"; do
 	fi
 
 	# create links to user project folder
-	echo "Linking the data to your project folder"
-	[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
-	[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
-	[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
+	if [[ $local == False ]]; then
+		echo "Linking the data to your project folder"
+		[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
+		[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
+		[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
+	fi
 
 	# manage central data table
 	data_row="${data[$bam_sample]}\t${USER}"
@@ -349,10 +358,10 @@ for bam in "${!bams[@]}"; do
 	(head -n 1 ${data_dir}/data.tsv && tail -n +2 ${data_dir}/data.tsv | sort -k 1,1) > ${data_dir}data.tsv.sorted # sort table by feature (keep header first)
 	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv
 
-	# clean up
-	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
-	find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
-	find ${data_dir}/bam/ -type f -name ${}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
+	# # clean up
+	# find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
+	# find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
+	# find ${data_dir}/bam/ -type f -name ${bam_sample}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 done
 
 echo -e "\nRead mapping statistics are located in ${data_dir}/bam/log/*.Log.final.out"

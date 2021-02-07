@@ -36,8 +36,9 @@ EOF
 
 # Print message if a file already exists
 file_exists() {
-	file=$(echo $1 | rev | cut -d'/' -f1,2 | rev) # trimmed path with only the last folder to avoid overcrowded print
-    echo "$file exists and will not be overwritten. (Set the -o option for overwriting existing files)"
+	# file=$(echo $1 | rev | cut -d'/' -f1,2 | rev) # trimmed path with only the last folder to avoid overcrowded print
+	file=$1
+	echo "The following file exists and will not be overwritten: $file"
 }
 
 # ---------------------------------------------------
@@ -71,7 +72,7 @@ current_file=NA # file to be deleted when job aborts
 declare -a skip # array indexed by integers
 declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_dirs species_dict data # associative array indexed by strings
 {
-	echo "Reading the data table"
+	echo -e "Reading the data table"
 	IFS="," read -r header || [ -n "$header" ] # read the header
 	while IFS="," read -r row_raw || [ -n "$row_raw" ]; do # loop through rows
 		# parse row from table and assign its values to variables
@@ -103,7 +104,7 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		build=${arr[4]}
 		species=$(sed -e 's/[0-9]//g' <<< "$build")
 		condition=${arr[5]}
-		biological_replicate=${arr[6]}
+		biological_replicate="${arr[6]^}"
 		if [[ $biological_replicate != Rep* ]]; then echo "Error: Values in column 'biological_replicate' must start with 'Rep', e.g. 'Rep1'." && exit 1; fi
 		sample=${feature}_${tissue}_${stage}_${species}_${build}_${condition}_${biological_replicate}
 		sample=$(sed -e 's/_NA_/_/g' <<< "$sample") # remove occurrences of 'NA' from sample name (in case a particular column was left empty, e.g. tissue for ESC)
@@ -159,17 +160,23 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 				[[ ${bams[$bam]} != *"$fastq"* ]] && bams[$bam]+=$fastq, # add the 'merged' file name (without flow-cell) only if it is not already there (in case of multiple sequencing runs)
 			done
 		elif [[ $data_source == "GEO" ]]; then
-			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}_?.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any (R1 or R2) fastq.gz file exists for this SRR
-				echo "Downloading $SRR_number from GEO"
-				# fastq-dump --gzip --split-files -O ${data_dir}/fastq $SRR_number
-				# prun mdl parallel-fastq-dump -s $SRR_number -t $nthreads -O ${data_dir}/fastq/ --split-files --gzip # --split-files will produce separate files for R1 and R2 and add the suffices .1 and .2, respectively.
-				prun mdl srr-curl $SRR_number ${data_dir}/fastq $sequencing_type
+			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}*.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any fastq.gz file exists for this SRR
+				# echo -e "\nDownloading $SRR_number from GEO"
+				prefetch -p -f yes -o ${data_dir}/fastq/${SRR_number}.sra ${SRR_number} # download sra
+				fasterq-dump --split-files -f -e ${nthreads} -p -o ${data_dir}/fastq/${SRR_number}.fastq ${data_dir}/fastq/${SRR_number}.sra # convert sra to fastq
+				[[ -e ${data_dir}/fastq/${SRR_number}.fastq ]] && [[ -e ${data_dir}/fastq/${SRR_number}.sra ]] && rm ${data_dir}/fastq/${SRR_number}.sra # remove sra if fastq was created successfully
 			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
 				i=$(echo $read | tr -d -c 0-9)
 				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
 				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
-					ln -sf ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz $fastq
+					if [[ $sequencing_type == 'single-end' ]]; then
+						[[ ! -e ${data_dir}/fastq/${SRR_number}.fastq.gz ]] && gzip -1 -v ${data_dir}/fastq/${SRR_number}.fastq # compress fastq (-1: fastest) # not really necessary as we anyways delete the fastq at the end, but easier for consistency
+						ln -sf ${data_dir}/fastq/${SRR_number}.fastq.gz $fastq # single-end reads from GEO have no _1 at the end
+					elif [[ $sequencing_type == 'paired-end' ]]; then
+						[[ ! -e ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz ]] && gzip -1 -v ${data_dir}/fastq/${SRR_number}_${i}.fastq # compress fastq (-1: fastest)
+						ln -sf ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz $fastq # paired-end reads from GEO have _1 / _2 at the end
+					fi
 				else
 					:
 					# file_exists $fastq
@@ -179,18 +186,18 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			done
 		elif [[ $data_source == "ENCODE" ]]; then
 			for read in "${reads[@]}"; do
-				ENC_url=$(prun mdl fetch_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}") $sequencing_type)
-				ENC_file=${data_dir}/fastq/${ENC_url##*/}
 				fastq=${data_dir}/fastq/${fastq_sample}_${read}.fastq.gz
-				if [[ $overwrite == True ]] || [[ ! -e  $ENC_file ]]; then # download
-					echo "Downloading ${ENC_url} from ENCODE"
-					curl -o $ENC_file -O -L $ENC_url
-				else
-					:
-					# file_exists $ENC_file
-				fi
-				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then # link
-					ln -sf $ENC_file $fastq
+				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
+					ENC_url=$(prun mdl fetch_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}") $sequencing_type)
+					ENC_file=${data_dir}/fastq/${ENC_url##*/}
+					if [[ $overwrite == True ]] || [[ ! -e  $ENC_file ]]; then # download
+						echo -e "\nDownloading ${ENC_accession} from ENCODE: ${ENC_url}"
+						curl -o $ENC_file -O -L $ENC_url
+					else
+						:
+						# file_exists $ENC_file
+					fi
+ 					ln -sf $ENC_file $fastq
 				else
 					:
 					# file_exists $fastq
@@ -232,7 +239,6 @@ done
 for bam in "${!bams[@]}"; do
 	bam_sample=$(sed -e 's/\.bam//g' <<< "$bam" | rev | cut -f1 -d/ | rev) # here, sample contains the build instead of the species
 	[[ "${skip[@]}" =~ "$bam_sample" ]] && continue # skip is an array containing all bam_samples that are already processed and have been linked to the user project folder.
-	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
 	build=${builds[$bam_sample]}
 	species=${species_dict[$build]}
 	if [[ $local == False ]]; then
@@ -241,6 +247,7 @@ for bam in "${!bams[@]}"; do
 		data_dir=$project_dir
 	fi
 	echo -e "\n${bam_sample}:"
+	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
 	echo $bam_rmdup
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
@@ -302,6 +309,7 @@ for bam in "${!bams[@]}"; do
 		echo "Removing duplicates"
 		if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 			current_file=$bam_rmdup
+			echo "samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out"
 			samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out
 			current_file=NA
 		else
@@ -327,7 +335,8 @@ for bam in "${!bams[@]}"; do
  	if [[ ${experiments[$bam_sample]} == "ChIP-seq" ]]; then center_reads_flag="--centerReads"; else center_reads_flag=""; fi # center reads for ChIP-seq experiments, not for chromatin-accessiblity
 	if [[ $overwrite == True ]] || [[ ! -e $bigwig ]]; then
 		current_file=$bigwig
-		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig
+		mkdir -p ${data_dir}/bigwig/log
+		bamCoverage --binSize 10 --normalizeUsing RPKM $center_reads_flag --minMappingQuality 30 -p $nthreads -b $bam_rmdup -o $bigwig > ${data_dir}/bigwig/log/${bam_sample}.bamCoverage.log
 		current_file=NA
 	else
 		file_exists $bigwig
@@ -359,9 +368,9 @@ for bam in "${!bams[@]}"; do
 	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv
 
 	# # clean up
-	# find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
-	# find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
-	# find ${data_dir}/bam/ -type f -name ${bam_sample}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
+	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
+	find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
+	find ${data_dir}/bam/ -type f -name ${bam_sample}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 done
 
 echo -e "\nRead mapping statistics are located in ${data_dir}/bam/log/*.Log.final.out"

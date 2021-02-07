@@ -62,32 +62,10 @@ mkdir -p $log_dir
 tmp=/scratch/local2/${sample_name}_tmp_${USER}
 [[ -e $tmp ]] && rm -rf $tmp # clear tmp folder if it exists
 
-echo "STAR --runMode alignReads \
-	 --genomeLoad NoSharedMemory \
-	 --genomeDir $star_index_dir \
-	 --runThreadN $nthreads \
-	 --readFilesIn $fastq \
-	 --alignEndsType EndToEnd \
-	 --alignIntronMax 1 \
-	 --alignSJDBoverhangMin 999 \
-	 --limitBAMsortRAM 20000000000 \
-	 --outFileNamePrefix ${log_dir}/${sample_name}. \
-	 --outSAMtype BAM SortedByCoordinate \
-	 --outSAMattributes Standard \
-	 --outSAMunmapped None \
-	 --outSAMmode NoQS \
-	 --outSAMattrRGline ID:$sample_name \
-	 --outStd BAM_SortedByCoordinate \
-	 --outFilterMultimapNmax 5 \
-	 --outFilterMatchNminOverLread 0.94 \
-	 --outTmpDir $tmp \
-	 --readFilesCommand 'gzip -dc' \
-	 --outReadsUnmapped $unmapped \ 
-	 > $outfile"
-
 # align reads
 STAR --runMode alignReads \
 	 --genomeLoad NoSharedMemory \
+	 --outReadsUnmapped $unmapped \
 	 --genomeDir $star_index_dir \
 	 --runThreadN $nthreads \
 	 --readFilesIn $fastq \
@@ -106,5 +84,4 @@ STAR --runMode alignReads \
 	 --outFilterMatchNminOverLread 0.94 \
 	 --outTmpDir $tmp \
 	 --readFilesCommand 'gzip -dc' \
-	 --outReadsUnmapped $unmapped \ 
 	 > $outfile

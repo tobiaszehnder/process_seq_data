@@ -24,11 +24,12 @@ def get_exp(exp_acc, biol_rep, read, sequencing_type):
 
 def main():
     if not len(sys.argv) == 5:
-        msg = """Usage: python get_encode_url.py <Accession Number> <Biological Replicate> <Read>\n
+        msg = """Usage: python get_encode_url.py <Accession Number> <Biological Replicate> <Read> <Sequencing Type>\n
 Accession Number\tMust be the one for the entire EXPERIMENT, not for the library, and not for the single fastq file.
 Biological Replicate\tInteger number of biological replicate (1, 2, ...)
-Read\t\t\tInteger number of single- / paired-end read (1 or 2)\n
-Example: python get_encode_url.py ENCSR255XTC 1 2
+Read\t\t\tInteger number of single- / paired-end read (1 or 2)
+Sequencing Type\t\tsingle-end or paired-end\n
+Example: python get_encode_url.py ENCSR255XTC 1 2 paired-end
 """
         print(msg)
         sys.exit(0)

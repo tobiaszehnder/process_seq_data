@@ -229,7 +229,8 @@ for bam in "${!bams[@]}"; do
 				cat ${fastqs[$fastq]//$','/$' '} > $fastq
 			fi
 		else
-			file_exists $fastq
+			:
+			# file_exists $fastq
 		fi
 	done
 done
@@ -248,7 +249,6 @@ for bam in "${!bams[@]}"; do
 	fi
 	echo -e "\n${bam_sample}:"
 	bam_rmdup=${data_dir}/bam/${bam_sample}.rmdup.bam
-	echo $bam_rmdup
 	if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 		# align fastq to bam
 		echo "Aligning reads"
@@ -309,8 +309,20 @@ for bam in "${!bams[@]}"; do
 		echo "Removing duplicates"
 		if [[ $overwrite == True ]] || [[ ! -e $bam_rmdup ]]; then
 			current_file=$bam_rmdup
-			echo "samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out"
-			samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out
+			{ # try
+				samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out
+			} || { # else
+				# samtools markdup will fail if sequencing_type is wrong (e.g. SE instead of PE). Remove all bam of this sample, skip sample and save info in error.log
+				err=$(grep "error" ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out)
+				if [[ $err != "" ]]; then
+	 				err="$bam_sample: Duplicate removal failed. Removed all processed bam files for this sample. Check if sequencing_type in data table is correct."
+					echo -e "$err\nWritten error to ${project_dir}/error.log"
+					echo -e "$(date): $err" >> ${project_dir}/error.log
+					rm ${data_dir}/bam/${bam_sample}*
+					skip+=($bam_sample)
+					continue
+				fi
+			}
 			current_file=NA
 		else
 			file_exists $bam_rmdup

@@ -49,8 +49,8 @@ overwrite=False
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 while getopts “:d:t:n:ol” OPTION; do
 	case $OPTION in
-		d) project_dir=$(readlink -f $OPTARG) ;; # full path
-		t) data_table=$OPTARG ;;
+		d) project_dir=$(realpath $OPTARG) ;; # full path
+		t) data_table=$(realpath $OPTARG) ;;
 		n) nthreads=$OPTARG ;;
 		o) overwrite=True ;;
 		l) local=True ;;
@@ -66,7 +66,8 @@ fi
 
 # create folder structures
 mkdir -p ${project_dir}/bam ${project_dir}/bigwig
-echo -n "" > ${project_dir}/error.log # initialize empty error.log
+error_log=${data_table}.errorlog
+echo -n "" > ${error_log} # initialize empty error_log
 current_file=NA # file to be deleted when job aborts
 
 # parse data table and create fastq links
@@ -198,21 +199,26 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 				[[ -e ${data_dir}/fastq/${SRR_number}.fastq ]] && [[ -e ${data_dir}/fastq/${SRR_number}.sra ]] && rm ${data_dir}/fastq/${SRR_number}.sra # remove sra if fastq was created successfully
 				for fn in ${data_dir}/fastq/${SRR_number}*fastq; do gzip -1 -v $fn; done # compress fastq (-1: fastest) # not really necessary as we anyways delete the fastq at the end, but easier for consistency
 			fi
+			nfiles=$(ls -1q ${data_dir}/fastq/${SRR_number}*fastq.gz | wc -l)
+			if [[ ( $sequencing_type == 'single-end' && $nfiles == 2 ) || ( $sequencing_type == 'paired-end' && $nfiles == 1 ) ]]; then
+				err="${bam_sample} is not ${sequencing_type}. Change in data table and resubmit job."
+				echo -e "$err\nWritten error to ${error_log}"
+				echo $err >> ${error_log}
+				skip+=($bam_sample)
+				continue
+			fi
 			for read in "${reads[@]}"; do # add sample description to SRR file names and rename _1 and _2 to R1 and R2
 				i=$(echo $read | tr -d -c 0-9)
 				fastq_srr=${data_dir}/fastq/${fastq_sample_srr}_${read}.fastq.gz
 				fastq_srx=${data_dir}/fastq/${fastq_sample_srx}_${read}.fastq.gz
 				if [[ $overwrite == True ]] || [[ ! -e $fastq_srr ]]; then
 					if [[ $sequencing_type == 'single-end' ]]; then
-						# [[ ! -e ${data_dir}/fastq/${SRR_number}.fastq.gz ]] && gzip -1 -v ${data_dir}/fastq/${SRR_number}.fastq 
 						mv ${data_dir}/fastq/${SRR_number}.fastq.gz $fastq_srr # single-end reads from GEO have no _1 at the end
 					elif [[ $sequencing_type == 'paired-end' ]]; then
-						# [[ ! -e ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz ]] && gzip -1 -v ${data_dir}/fastq/${SRR_number}_${i}.fastq # compress fastq (-1: fastest)
 						mv ${data_dir}/fastq/${SRR_number}_${i}.fastq.gz $fastq_srr # paired-end reads from GEO have _1 / _2 at the end
 					fi
 				else
-					:
-					# file_exists $fastq
+					: # file_exists $fastq
 				fi
 				fastqs[$fastq_srx]+=$fastq_srr, # key: merged fastq name (SRX), values: separate fastq names (SRR)
 				bam_srx=$(sed -e "s/${SRR_number}/${srx}/g" <<< "$bam") # replace SRR_number with srx in bam file name, later substitute it back to all SRR numbers
@@ -224,14 +230,17 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 				if [[ $overwrite == True ]] || [[ ! -e $fastq ]]; then
 					ENC_url=$(prun mdl fetch_encode_url.py ${ENC_accession} $(sed -e 's/[^0-9]//g' <<< "${biological_replicate}") $(sed -e 's/[^0-9]//g' <<< "${read}") $sequencing_type)
 					if [[ $ENC_url == None ]];  then
-						err="Download link for $ENC_accession not found. Download manually and restart script."
-						echo -e "$err\nWritten error to ${project_dir}/error.log\nContinuing job"
-						echo $err >> ${project_dir}/error.log
+						err="${bam_sample}: Download link for $ENC_accession not found. Download manually and restart script."
+						echo -e "$err\nWritten error to ${error_log}"
+						echo $err >> ${error_log}
 						skip+=($bam_sample)
 						continue
 					fi
-					if [[ $overwrite == True ]] || [[ ! -e  $fastq ]]; then # download
-						echo -e "\nDownloading ${ENC_accession} from ENCODE: ${ENC_url}"
+					# rename old ENC*.fastq.gz to new naming
+					if [[ ! -e $fastq ]] && [[ -e ${data_dir}/fastq/$(echo $ENC_url | rev | cut -f1 -d "/" | rev) ]]; then
+						mv ${data_dir}/fastq/$(echo $ENC_url | rev | cut -f1 -d "/" | rev) $fastq
+					elif [[ $overwrite == True ]] || [[ ! -e  $fastq ]]; then # download
+						echo -e "\nDownloading experiment ${ENC_accession} from ENCODE: ${ENC_url}"
 						curl -o $fastq -O -L $ENC_url
 					fi
 				fi				
@@ -254,12 +263,15 @@ for bam in "${!bams[@]}"; do
 		# merged_fastq=$(sed -e "s/_${build}_/_${species}_/g" -e "s/\.bam/\_${read}\.fastq.gz/g" -e 's/\/bam\//\/fastq\//g' <<< "$bam") # merged fastq
 		merged_fastq="${bams[$bam]}"
 		unmerged_fastqs="${fastqs[$merged_fastq]}"
+		echo $merged_fastq
+		echo $unmerged_fastqs
 		if [[ $overwrite == True ]] || [[ ! -e $merged_fastq ]]; then
 			n=$(awk -F, '{print NF-1}' <<< ${unmerged_fastqs}) # count the number of commas (i.e. the number of sequencing runs)
+			echo $n
 			if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
 				single_fastq=$(sed 's/,//g' <<< "${unmerged_fastqs}")
 				[[ $single_fastq != $merged_fastq ]] && ln -s $single_fastq $merged_fastq
-			elif [[ $n == 2 ]]; then # multiple runs: merge and remove flow-cell numbers
+			elif [[ $n > 2 ]]; then # multiple runs: merge and remove flow-cell numbers
 				[[ $merge_print_flag == 0 ]] && echo "Merging fastq files from multiple sequencing runs" && merge_print_flag=1
 				cat $(sed -e "s/,/ /g" <<< "${unmerged_fastqs}") > $merged_fastq
 			   	# cat ${unmerged_fastqs//$','/$' '} > $merged_fastq
@@ -348,12 +360,12 @@ for bam in "${!bams[@]}"; do
 			{ # try
 				samtools markdup -s -r --threads $nthreads $bam $bam_rmdup 2> ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out
 			} || { # else
-				# samtools markdup will fail if sequencing_type is wrong (e.g. SE instead of PE). Remove all bam of this sample, skip sample and save info in error.log
+				# samtools markdup will fail if sequencing_type is wrong (e.g. SE instead of PE). Remove all bam of this sample, skip sample and save info in error_log
 				err=$(grep "error" ${data_dir}/bam/log/${bam_sample}.Log.rmdup.out)
 				if [[ $err != "" ]]; then
 	 				err="$bam_sample: Duplicate removal failed. Removed all processed bam files for this sample. Check if sequencing_type in data table is correct."
-					echo -e "$err\nWritten error to ${project_dir}/error.log\nContinuing job"
-					echo -e "$(date): $err" >> ${project_dir}/error.log
+					echo -e "$err\nWritten error to ${error_log}"
+					echo -e "$(date): $err" >> ${error_log}
 					rm ${data_dir}/bam/${bam_sample}*
 					skip+=($bam_sample)
 					continue

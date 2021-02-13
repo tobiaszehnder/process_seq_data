@@ -132,8 +132,8 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		fi
 		mkdir -p $data_dir/fastq $data_dir/bam $data_dir/bigwig # create subfolders
 
-		# skip fastq linking / downloading if bam / bigwig exist
-		if [[ -e ${data_dir}/bam/${bam_sample}.rmdup.bam ]] || [[ -e ${data_dir}/bigwig/${bam_sample}.rpkm.bw ]]; then
+		# skip if bam and bigwig exist
+		if [[ -e ${data_dir}/bam/${bam_sample}.rmdup.bam ]] && [[ -e ${data_dir}/bigwig/${bam_sample}.rpkm.bw ]]; then
 			if [[ $overwrite == False ]]; then
 				continue
 			fi
@@ -261,12 +261,11 @@ for bam in "${!bams[@]}"; do
 	if [[ $sequencing_types[$bam_sample] == 'paired-end' ]]; then reads=( "R1" "R2" ); elif [[ $sequencing_types[$bam_sample] == 'single-end' ]]; then reads=( "R1" ); fi
 	for read in ${reads[@]}; do
 		# merged_fastq=$(sed -e "s/_${build}_/_${species}_/g" -e "s/\.bam/\_${read}\.fastq.gz/g" -e 's/\/bam\//\/fastq\//g' <<< "$bam") # merged fastq
-		merged_fastq="${bams[$bam]}"
+		merged_fastqs=($(sed -e 's/,/ /g' <<< "${bams[$bam]}")) # array of merged fastqs for this bam (multiple for paired-end, R1 and R2)
+		for elm in ${merged_fastqs[@]}; do [[ "$elm" =~ "$read" ]] && merged_fastq=$elm; done # save the merged_fastq of the currently iterated read (R1 or R2)
 		unmerged_fastqs="${fastqs[$merged_fastq]}"
-		echo $merged_fastq
-		echo $unmerged_fastqs
 		if [[ $overwrite == True ]] || [[ ! -e $merged_fastq ]]; then
-			n=$(awk -F, '{print NF-1}' <<< ${unmerged_fastqs}) # count the number of commas (i.e. the number of sequencing runs)
+			n=$(awk -F, '{print NF-1}' <<< ${unmerged_fastqs}) # count the number of commas-delimited fields (i.e. the number of sequencing runs)
 			echo $n
 			if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
 				single_fastq=$(sed 's/,//g' <<< "${unmerged_fastqs}")
@@ -436,7 +435,7 @@ for bam in "${!bams[@]}"; do
 	fi
 	(head -n 1 ${data_dir}/data.tsv && tail -n +2 ${data_dir}/data.tsv | sort -k 1,1) > ${data_dir}data.tsv.sorted # sort table by feature (keep header first)
 	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv
-
+	
 	# clean up
 	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
 	find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)

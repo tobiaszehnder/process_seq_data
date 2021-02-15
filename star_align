@@ -20,25 +20,28 @@ OPTIONS:
    -o OUTFILE			Output file name
 
    -u UNMAPPED			Optional: Save unmapped reads to fastq (in the log directory)
+
+   -s STAR_PARAMS		Optional: any STAR parameter
 EOF
 }
 
 # parse arguments (more info at https://ndench.github.io/bash/parsing-bash-flags)
 nthreads=1
 unmapped=None
-while getopts “:b:i:n:o:u” OPTION; do
+star_params=""
+while getopts “:b:i:n:o:s:u” OPTION; do
 	case $OPTION in
 		b) build=$OPTARG ;;
 		i) star_index_dir=$(readlink -f $OPTARG) ;; # full path
 		n) nthreads=$OPTARG ;;
 		o) outfile=$(readlink -f $OPTARG) ;;
+		s) star_params=$(sed -e "s/['\"]//g" <<< "$OPTARG") ;; # replace leading and trailing quote
 		u) unmapped=Fastx ;;
 		?) usage; exit 1 ;;
  	esac
 done
 shift $(( OPTIND - 1 )) # shift to unread trailing arguments
 fastq=$@ # read trailing arguments
-
 # check if index exists
 [[ -z ${star_index_dir+x} ]] && star_index_dir=/project/MDL_ChIPseq/data/genome/star_index/$build # if star_index_dir was not passed, set it according to passed build
 if [[ ! -e $star_index_dir ]]; then # if there is no index yet at that location, exit and prompt the user to create index first
@@ -62,26 +65,35 @@ mkdir -p $log_dir
 tmp=/scratch/local2/${sample_name}_tmp_${USER}
 [[ -e $tmp ]] && rm -rf $tmp # clear tmp folder if it exists
 
+# 'standard' args
+args=(
+	"--runMode alignReads"
+	"--genomeLoad NoSharedMemory"
+	"--outReadsUnmapped $unmapped"
+	"--genomeDir $star_index_dir"
+	"--runThreadN $nthreads"
+	"--readFilesIn $fastq"
+	"--alignEndsType EndToEnd"
+	"--alignIntronMax 1"
+	"--alignSJDBoverhangMin 999"
+	"--limitBAMsortRAM 20000000000"
+	"--outFileNamePrefix ${log_dir}/${sample_name}."
+	"--outSAMtype BAM SortedByCoordinate"
+	"--outSAMattributes Standard"
+	"--outSAMunmapped None"
+	"--outSAMmode NoQS"
+	"--outSAMattrRGline ID:$sample_name"
+	"--outStd BAM_SortedByCoordinate"
+	"--outFilterMultimapNmax 5"
+	"--outFilterMatchNminOverLread 0.94"
+	"--outTmpDir $tmp"
+	"--readFilesCommand 'gzip -dc'"
+)
+
+# add the standard args to the star_params that were not already passed as a custom value
+for arg in "${args[@]}"; do 
+	[[ ! "${star_params}" =~ "$(echo $arg | cut -f1 -d" ")" ]] && star_params+=" $arg"
+done
+
 # align reads
-STAR --runMode alignReads \
-	 --genomeLoad NoSharedMemory \
-	 --outReadsUnmapped $unmapped \
-	 --genomeDir $star_index_dir \
-	 --runThreadN $nthreads \
-	 --readFilesIn $fastq \
-	 --alignEndsType EndToEnd \
-	 --alignIntronMax 1 \
-	 --alignSJDBoverhangMin 999 \
-	 --limitBAMsortRAM 20000000000 \
-	 --outFileNamePrefix ${log_dir}/${sample_name}. \
-	 --outSAMtype BAM SortedByCoordinate \
-	 --outSAMattributes Standard \
-	 --outSAMunmapped None \
-	 --outSAMmode NoQS \
-	 --outSAMattrRGline ID:$sample_name \
-	 --outStd BAM_SortedByCoordinate \
-	 --outFilterMultimapNmax 5 \
-	 --outFilterMatchNminOverLread 0.94 \
-	 --outTmpDir $tmp \
-	 --readFilesCommand 'gzip -dc' \
-	 > $outfile
+STAR ${star_params} > $outfile

@@ -31,6 +31,9 @@ OPTIONS:
    -n NTHREADS   	Number of parallel threads
  
    -o OVERWRITE		Flag for overwriting existing files
+
+   -s STAR_PARAMS	Optional: any number of STAR parameters for the alignment in double quotes.
+   	  				Example: -s "--outFilterMultimapNmax 1 --outSAMmultNmax 1"
 EOF
 }
 
@@ -47,19 +50,21 @@ file_exists() {
 nthreads=1
 overwrite=False
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
-while getopts “:d:t:n:ol” OPTION; do
+star_params=" "
+while getopts “:d:t:n:s:ol” OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
 		n) nthreads=$OPTARG ;;
 		o) overwrite=True ;;
 		l) local=True ;;
+		s) star_params=$OPTARG ;;
 		?) usage; exit 1 ;;
  	esac
 done
 
 # throw error if not all mandatory arguments are passed
-if [ -z ${project_dir+x} ] || [ -z ${data_table+x} ] || [ -z ${nthreads+x} ] || [ -z ${overwrite+x} ]; then
+if [ -z ${project_dir+x} ] || [ -z ${data_table+x} ]; then
 	usage
 	exit 1
 fi
@@ -112,6 +117,8 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			# Multiple sequencing runs have different SRR (run) numbers, but a common SRX (experiment) number. Save that internally for association during mergin.
 			# Output files will be named with all SRRs, e.g. sample_SRR1_SRR2.bam
 			srx=$(curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${SRR_number}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp&format=tsv&download=true" | tail -1 | cut -f3)
+			echo $srx
+			echo $SRR_number
 			srr_dict[$srx]+=$SRR_number,
 			fastq_sample_srr="${fastq_sample}_${SRR_number}"
 			fastq_sample_srx="${fastq_sample}_${srx}"
@@ -164,9 +171,9 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 		if [[ -f ${data_dir}/data.tsv ]]; then
 			if [[ $overwrite == False ]] && [[ $(grep ${bam_sample}$'\t'${id} ${data_dir}/data.tsv) != "" ]]; then # data entry does already exist, create links and continue loop
 				echo -e "\n${data_row}: Data exists and will be linked to your project folder\nSet the -o option for overwriting existing files"
-				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
-				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
-				[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
+				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -sf ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
+				[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -sf ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
+				[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -sf ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
 				skip+=($bam_sample) # array containing all bam_samples that are already processed. use later to skip those bam_samples.
 				continue
 			else # data entry does not yet exist or must be overwritten
@@ -269,7 +276,7 @@ for bam in "${!bams[@]}"; do
 			echo $n
 			if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
 				single_fastq=$(sed 's/,//g' <<< "${unmerged_fastqs}")
-				[[ $single_fastq != $merged_fastq ]] && ln -s $single_fastq $merged_fastq
+				[[ $single_fastq != $merged_fastq ]] && ln -sf $single_fastq $merged_fastq
 			elif [[ $n > 2 ]]; then # multiple runs: merge and remove flow-cell numbers
 				[[ $merge_print_flag == 0 ]] && echo "Merging fastq files from multiple sequencing runs" && merge_print_flag=1
 				cat $(sed -e "s/,/ /g" <<< "${unmerged_fastqs}") > $merged_fastq
@@ -309,7 +316,7 @@ for bam in "${!bams[@]}"; do
 			fi
 			# align
 			current_file=$bam
-			prun mdl star_align -b $build -i $star_index_dir -n $nthreads -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
+			prun mdl star_align -b $build -i $star_index_dir -n $nthreads -s "'$star_params'" -o $bam ${bams[$bam]//','/' '} # the 'bams' array holds the associated fastqs (R1 / R2 for paired-end) at the entry with the bam name as key
 			current_file=NA
 		else
 			file_exists $bam
@@ -414,9 +421,9 @@ for bam in "${!bams[@]}"; do
 	# create links to user project folder
 	if [[ $local == False ]]; then
 		echo "Linking the data to your project folder"
-		[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
-		[[ ! -e ${project_dir}/bam/${bam_sample}.rmdup.bam.csi ]] && ln -s ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
-		[[ ! -e ${project_dir}/bigwig/${bam_sample}.rpkm.bw ]] && ln -s ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
+		ln -sf ${data_dir}/bam/${bam_sample}.rmdup.bam ${project_dir}/bam/
+		ln -sf ${data_dir}/bam/${bam_sample}.rmdup.bam.csi ${project_dir}/bam/
+		ln -sf ${data_dir}/bigwig/${bam_sample}.rpkm.bw ${project_dir}/bigwig/
 	fi
 
 	# manage central data table
@@ -433,8 +440,8 @@ for bam in "${!bams[@]}"; do
 		echo -e "sample\tsource\tuser\tdate" > ${data_dir}/data.tsv
 		echo -e "${data_row}\t$(date +%F)" >> ${data_dir}/data.tsv
 	fi
-	(head -n 1 ${data_dir}/data.tsv && tail -n +2 ${data_dir}/data.tsv | sort -k 1,1) > ${data_dir}data.tsv.sorted # sort table by feature (keep header first)
-	mv ${data_dir}data.tsv.sorted ${data_dir}/data.tsv
+	(head -n 1 ${data_dir}/data.tsv && tail -n +2 ${data_dir}/data.tsv | sort -k 1,1) > ${data_dir}/data.tsv.sorted # sort table by feature (keep header first)
+	mv ${data_dir}/data.tsv.sorted ${data_dir}/data.tsv
 	
 	# clean up
 	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files

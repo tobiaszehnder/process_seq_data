@@ -10,18 +10,18 @@ Usage: prun mdl ${0##*/} [options...] [R1.fastq.gz] [R2.fastq.gz (optional)]
 This script aligns fastq file(s) to a given genome.
 
 OPTIONS:
-   -b GENOME_BUILD		Genome build (e.g. mm10)
+   -b GENOME_BUILD	 Genome build (e.g. mm10)
 
-   -i STAR_GENOME_INDEX Path to the STAR genome index directory
-   	  					Only required if there isn't already one for the passed build at /project/MDL_ChIPseq/data/genome/star_index
+   -i STAR_GENOME_INDEX	 Path to the STAR genome index directory
+   	  	 	 Only required if there isn't already one for the passed build at /project/MDL_ChIPseq/data/genome/star_index
    				 
-   -n NTHREADS			Number of parallel threads
+   -n NTHREADS		 Number of parallel threads
 
-   -o OUTFILE			Output file name
+   -o OUTFILE		 Output file name
 
-   -u UNMAPPED			Optional: Save unmapped reads to fastq (in the log directory)
+   -u UNMAPPED		 Optional: Save unmapped reads to fastq (in the log directory)
 
-   -s STAR_PARAMS		Optional: any STAR parameter
+   -s STAR_PARAMS	 Optional: any STAR parameter
 EOF
 }
 
@@ -87,7 +87,6 @@ args=(
 	"--outFilterMultimapNmax 5"
 	"--outFilterMatchNminOverLread 0.94"
 	"--outTmpDir $tmp"
-	"--readFilesCommand 'gzip -dc'"
 )
 
 # add the standard args to the star_params that were not already passed as a custom value
@@ -96,4 +95,4 @@ for arg in "${args[@]}"; do
 done
 
 # align reads
-STAR ${star_params} > $outfile
+STAR ${star_params} --readFilesCommand 'gzip -dc' > $outfile

@@ -33,7 +33,7 @@ OPTIONS:
    -o OVERWRITE		Flag for overwriting existing files
 
    -s STAR_PARAMS	Optional: any number of STAR parameters for the alignment in double quotes.
-   	  				Example: -s "--outFilterMultimapNmax 1 --outSAMmultNmax 1"
+   	  		Example: -s "--outFilterMultimapNmax 1 --outSAMmultNmax 1"
 EOF
 }
 
@@ -117,8 +117,6 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			# Multiple sequencing runs have different SRR (run) numbers, but a common SRX (experiment) number. Save that internally for association during mergin.
 			# Output files will be named with all SRRs, e.g. sample_SRR1_SRR2.bam
 			srx=$(curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${SRR_number}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp&format=tsv&download=true" | tail -1 | cut -f3)
-			echo $srx
-			echo $SRR_number
 			srr_dict[$srx]+=$SRR_number,
 			fastq_sample_srr="${fastq_sample}_${SRR_number}"
 			fastq_sample_srx="${fastq_sample}_${srx}"
@@ -273,7 +271,6 @@ for bam in "${!bams[@]}"; do
 		unmerged_fastqs="${fastqs[$merged_fastq]}"
 		if [[ $overwrite == True ]] || [[ ! -e $merged_fastq ]]; then
 			n=$(awk -F, '{print NF-1}' <<< ${unmerged_fastqs}) # count the number of commas-delimited fields (i.e. the number of sequencing runs)
-			echo $n
 			if [[ $n == 1 ]]; then # one run: rename, remove flow-cell number
 				single_fastq=$(sed 's/,//g' <<< "${unmerged_fastqs}")
 				[[ $single_fastq != $merged_fastq ]] && ln -sf $single_fastq $merged_fastq
@@ -414,7 +411,10 @@ for bam in "${!bams[@]}"; do
 		bam_SRRs=($(sed -e 's/\(.*\),/\1/' -e 's/,/ /g' <<< "${srr_dict[$bam_srx]}")) # put SRRs into an array (remove last trailing comma, replace all other commas with spaces)
 		bam_SRRs_string=$(echo "${bam_SRRs[@]}" | tr ' ' '\n' | sort -u | tr '\n' ' ' | tr ' ' '_' | sed -e 's/\(.*\)_/\1/') # save unique SRRs in a '_'-delimited string
 		new_bam_name=$(sed -e "s/${bam_srx}/${bam_SRRs_string}/g" <<< "$bam_rmdup") # replace old srx with new SRR1_SRR2 string
+		new_bigwig_name=$(sed -e "s/${bam_srx}/${bam_SRRs_string}/g" <<< "$bigwig") # replace old srx with new SRR1_SRR2 string
 		mv $bam_rmdup $new_bam_name
+		mv $bigwig $new_bigwig_name
+		bam_sample_old=$bam_sample # save this for file cleanup later
 		bam_sample=$(sed -e "s/${bam_srx}/${bam_SRRs_string}/g" <<< "$bam_sample")
 	fi
 	
@@ -444,9 +444,9 @@ for bam in "${!bams[@]}"; do
 	mv ${data_dir}/data.tsv.sorted ${data_dir}/data.tsv
 	
 	# clean up
-	find ${data_dir}/fastq -type f -name ${fastq_sample}* -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
-	find ${data_dir}/fastq/ -xtype l -name ${fastq_sample}* -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
-	find ${data_dir}/bam/ -type f -name ${bam_sample}*.bam ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
+	find ${data_dir}/fastq -type f -name "${fastq_sample}*" -delete # remove all real fastq files (merged fastq's and downloaded), only keep links to seqcore files
+	find ${data_dir}/fastq/ -xtype l -name "${fastq_sample}*" -delete # remove all symlinks that point to non-existing files (e.g. the previously removed SRR / ENC fastq's)
+	find ${data_dir}/bam/ -type f \( -name "${bam_sample}*.bam" -o -name "${bam_sample_old}*.bam" \) ! -name '*.rmdup.bam' -delete # remove any intermediate bam files, only keep final rmduped bam
 done
 
 echo -e "\nRead mapping statistics are located in ${data_dir}/bam/log/*.Log.final.out"

@@ -95,4 +95,4 @@ for arg in "${args[@]}"; do
 done
 
 # align reads
-STAR ${star_params} --readFilesCommand 'gzip -dc' > $outfile
+STAR ${star_params} --readFilesCommand 'gzip -dc' > "$outfile"

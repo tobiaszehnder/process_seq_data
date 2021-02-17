@@ -51,7 +51,7 @@ nthreads=1
 overwrite=False
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 star_params=" "
-while getopts “:d:t:n:s:ol” OPTION; do
+while getopts ":d:t:n:s:ol" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
@@ -200,7 +200,9 @@ declare -A fastqs bams bigwigs experiments sequencing_types builds star_index_di
 			if [[ $overwrite == True ]] || ! ls ${data_dir}/fastq/${SRR_number}*.fastq.gz 1> /dev/null 2>&1; then # the second condition checks if any fastq.gz file exists for this SRR
 				# echo -e "\nDownloading $SRR_number from GEO"
 				[[ ! -e ${data_dir}/fastq/${SRR_number}.sra ]] && prefetch -p -f yes -o ${data_dir}/fastq/${SRR_number}.sra ${SRR_number} # download sra
-				[[ ! -e ${data_dir}/fastq/${SRR_number}*fastq ]] && fasterq-dump --split-files -f -e ${nthreads} -p -o ${data_dir}/fastq/${SRR_number}.fastq ${data_dir}/fastq/${SRR_number}.sra # convert sra to fastq
+				ncbi_tmp=/scratch/local2/$USER/ncbi-tmp
+				mkdir -p $ncbi_tmp
+				[[ ! -e ${data_dir}/fastq/${SRR_number}*fastq ]] && fasterq-dump -t $ncbi_tmp --split-files -f -e ${nthreads} -p -o ${data_dir}/fastq/${SRR_number}.fastq ${data_dir}/fastq/${SRR_number}.sra # convert sra to fastq
 				[[ -e ${data_dir}/fastq/${SRR_number}.fastq ]] && [[ -e ${data_dir}/fastq/${SRR_number}.sra ]] && rm ${data_dir}/fastq/${SRR_number}.sra # remove sra if fastq was created successfully
 				for fn in ${data_dir}/fastq/${SRR_number}*fastq; do gzip -1 -v $fn; done # compress fastq (-1: fastest) # not really necessary as we anyways delete the fastq at the end, but easier for consistency
 			fi

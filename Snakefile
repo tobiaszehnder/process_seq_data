@@ -16,7 +16,9 @@ mates = {'single-end': ['R1'], 'paired-end': ['R1', 'R2']}
 star_index_dir = '/project/MDL_ChIPseq/data/genome/star_index'
 bowtie2_index_dir = '/project/MDL_ChIPseq/data/genome/bowtie2_index'
 
-# -------------------------------------------
+
+# rules
+# ---------------------------
 
 rule all:
     input:
@@ -51,11 +53,11 @@ rule fasterq_single_end:
         ncbi_tmp = '/scratch/local2/$USER/ncbi-tmp',
         output = '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}.fastq'
     shell:
-        """
+        '''
         mkdir -p {params.ncbi_tmp}
         fasterq-dump -t {params.ncbi_tmp} --split-files -f -e {threads} -p -o {params.output} {input}
         mv {params.output} {output}
-        """
+        '''
 
 rule fasterq_paired_end:
     input:
@@ -100,7 +102,7 @@ rule merge_geo_fastqs:
 rule merge_mpi_fastqs:
     # flow cell info is stored in data_df
     input:
-        lambda wc: ['%s/fastq/MPI/%s/%s_%s_%s.fastq.gz' %(wc['data_dir'], wc['sequencing_type'], wc['sample'], fc, wc['mate']) for fc in data_df_fastq.loc[wc['sample'], 'flow_cell'].split(',')]
+        lambda wc: [ancient('%s/fastq/MPI/%s/%s_%s_%s.fastq.gz') %(wc['data_dir'], wc['sequencing_type'], wc['sample'], fc, wc['mate']) for fc in data_df_fastq.loc[wc['sample'], 'flow_cell'].split(',')]
     output:
         temp('{data_dir}/fastq/MPI/{sequencing_type}/{sample}_merged_{mate,\w\d}.fastq.gz')
     shell:
@@ -129,8 +131,9 @@ rule download_encode_paired_end:
 
 rule trim_adapters:
     input:
-        R1 = '{data_dir}/fastq/{source}/paired-end/{sample}_R1.fastq.gz',
-        R2 = '{data_dir}/fastq/{source}/paired-end/{sample}_R2.fastq.gz'
+        # ancient: ignore time stamp of fastqs because in case of MPI data, potentially existing links are updated every time a data table is parsed, thereby evoking the execution of all downstream rules.
+        R1 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R1.fastq.gz'),
+        R2 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R2.fastq.gz')
     output:
         R1 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC.*}_R1_trim.fastq.gz'),
         R2 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC.*}_R2_trim.fastq.gz')
@@ -155,7 +158,7 @@ rule bowtie2_index:
         fasta = ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa'),
         sizes = ancient('/project/MDL_ChIPseq/data/genome/assembly/{build}.sizes')
     output:
-        directory('%s/{build}' %bowtie2_index_dir)
+        directory('%s/{build}/{build}' %bowtie2_index_dir)
     threads: workflow.cores
     shell:
         '''
@@ -180,7 +183,8 @@ def get_fastqs(wc):
         fastqs = ['%s/fastq/%s/paired-end/%s%s_%s.fastq.gz' %(wc['data_dir'], wc['source'], fastq_sample, suffix, mate) for mate in ['R1','R2']]
     if data_df.loc[sample, 'experiment'] == 'chromatin-accessibility' and data_df.loc[sample, 'sequencing_type'] == 'paired-end':
         fastqs = [re.sub('.fastq.gz', '_trim.fastq.gz', fastq) for fastq in fastqs]
-    return fastqs
+    # ancient: ignore time stamp of fastqs because in case of MPI data, potentially existing links are updated every time a data table is parsed, thereby evoking the execution of all downstream rules.
+    return [ancient(fastq) for fastq in fastqs]
         
 rule align_star:
     input:
@@ -197,12 +201,12 @@ rule align_star:
 rule align_bowtie2_single_end:
     # only for ATAC
     input:
-        index = '%s/{build}' %bowtie2_index_dir,
+        index = '%s/{build}/{build}' %bowtie2_index_dir,
         fastq = get_fastqs
     output:
-        temp("{data_dir}/bam/{source}/single-end/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
+        temp("{data_dir}/bam/{source}/single-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
     log:
-        '{data_dir}/bam/{source}/single-end/log/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
+        '{data_dir}/bam/{source}/single-end/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
     threads: workflow.cores
     shell:
         'bowtie2 --mm -x {input.index} --threads {threads} -U {input.fastq} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
@@ -210,7 +214,7 @@ rule align_bowtie2_single_end:
 rule align_bowtie2_paired_end:
     # only for ATAC
     input:
-        index = '%s/{build}' %bowtie2_index_dir,
+        index = '%s/{build}/{build}' %bowtie2_index_dir,
         fastqs = get_fastqs
     output:
         temp("{data_dir}/bam/{source}/paired-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")

@@ -1,12 +1,16 @@
 #! /bin/bash
 
-[[ $# != 3 ]] && echo "Usage: srr-curl <SRRxxxxxxx> <outdir> <single-end/paired-end>" && exit 1
+[[ $# < 3 ]] && echo "Usage: srr-curl <SRRxxxxxxx> <outdir> <single-end/paired-end>" && exit 1
 SRR=$1
 outdir=$2
 sequencing_type=$3
+[[ $4 == '-n' ]] && just_print=True # optional 4th argument is the -n flag
 
 # fetch ftp directory
 files=$(curl -s "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=${SRR}&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp&format=tsv&download=true" | tail -1 | rev | cut -f3 | rev)
+
+# print files if -n option was passed
+[[ $just_print == True ]] && echo $files && exit 0
 
 # download files
 # sem_id=${SRR}_$RANDOM

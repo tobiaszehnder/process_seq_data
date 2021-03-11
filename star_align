@@ -19,7 +19,7 @@ OPTIONS:
 
    -o OUTFILE		 Output file name
 
-   -u UNMAPPED		 Optional: Save unmapped reads to fastq (in the log directory)
+   -u UNMAPPED		 Optional: Save unmapped reads in fastq format (in the bam/log directory)
 
    -s STAR_PARAMS	 Optional: any STAR parameter
 EOF
@@ -73,9 +73,7 @@ args=(
 	"--genomeDir $star_index_dir"
 	"--runThreadN $nthreads"
 	"--readFilesIn $fastq"
-	"--alignEndsType EndToEnd"
-	"--alignIntronMax 1"
-	"--alignSJDBoverhangMin 999"
+	"--alignEndsType Local"
 	"--limitBAMsortRAM 20000000000"
 	"--outFileNamePrefix ${log_dir}/${sample_name}."
 	"--outSAMtype BAM SortedByCoordinate"
@@ -84,8 +82,6 @@ args=(
 	"--outSAMmode NoQS"
 	"--outSAMattrRGline ID:$sample_name"
 	"--outStd BAM_SortedByCoordinate"
-	"--outFilterMultimapNmax 5"
-	"--outFilterMatchNminOverLread 0.94"
 	"--outTmpDir $tmp"
 )
 

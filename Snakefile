@@ -285,16 +285,41 @@ rule rmdup:
         
 rule bam_index:
     input:
-        "{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam"
+        '{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam'
     output:
-        "{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam.csi"
+        '{data_dir}/bam/{source}/{sequencing_type}/{sample,((?!noMateFlags).)*}.rmdup.bam.csi'
     shell:
         "samtools index -c {input}"
-        
+
+rule bam_index_noMateFlag:
+    # separate rule because this output is temporary
+    input:
+        '{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.noMateFlags.bam'
+    output:
+        temp('{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.noMateFlags.bam.csi')
+    shell:
+        "samtools index -c {input}"
+
+rule remove_mate_flag:
+    # remove mate flags for bigwig track creation for paired-end ATAC-seq (single-end mode)
+    input:
+        '{source_dir}/paired-end/{sample}.rmdup.bam'
+    output:
+        temp('{source_dir}/paired-end/{sample,ATAC.*}.rmdup.noMateFlags.bam')
+    run:
+        remove_mate_flag('{input}' '{output}')
+
+def get_bam(wc, index=False):
+    suffix = '.csi' if index else ''
+    if wc['sequencing_type'] == 'paired-end' and wc['sample'].startswith('ATAC'):
+        return '%s/bam/%s/%s/%s.rmdup.noMateFlags.bam%s' %(wc['data_dir'], wc['source'], wc['sequencing_type'], wc['sample'], suffix)
+    else:
+        return '%s/bam/%s/%s/%s.rmdup.bam%s' %(wc['data_dir'], wc['source'], wc['sequencing_type'], wc['sample'], suffix)
+
 rule bw:
     input:
-        bam="{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam",
-        bam_index="{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam.csi"
+        bam = get_bam,
+        idx = lambda wc: get_bam(wc, index=True)
     output:
         "{data_dir}/bigwig/{source}/{sequencing_type}/{sample}.rpkm.bw"
     log:

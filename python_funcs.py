@@ -4,6 +4,19 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 # function for retrieving SRX for a given SRR
 get_srx = lambda srr: "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=%s&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp&format=tsv&download=true" %srr
 
+def remove_mate_flag(infile, outfile):
+    # function to remove mate flags from paired-end ATAC-seq bam files.
+    # this is used as a preparation before creating the bigwig track so that bamCoverage treats the mates as single-end (because we're interested in the 5' cutting sites of the mates, not the read center)
+    import pysam
+    infile = pysam.AlignmentFile(infile, 'rb')
+    outfile = pysam.AlignmentFile(outfile, 'wb', template=infile)
+    for read in infile.fetch():
+        read.flag = (read.flag & 3860) # 3860 are all flags which are not related to paired-end reads, i.e. a read flag will be either that or zero.
+        outfile.write(read)
+    infile.close()
+    outfile.close()
+    return
+
 def parse_data_table(data_table):
     # load modules
     import numpy as np, pandas as pd, urllib.request, collections, glob, re, os
@@ -68,7 +81,8 @@ def parse_data_table(data_table):
         grp_idx = geo.groupby(['sample','srx']).apply(lambda x: x.index.values)
         grp_val = geo.groupby(['sample','srx']).apply(lambda x: '_'.join(x['id'].values))
         new_sample_names = flatten([[geo.loc[x, 'sample'] + '_' + grp_val[i] for x in idx] for i,idx in enumerate(grp_idx.values)])
-        geo.loc[:, 'sample'] = new_sample_names
+        geo = geo.drop('sample', axis=1)
+        geo.insert(0, 'sample', new_sample_names)
         geo.insert(0, 'fastq_sample', geo.apply(lambda x: re.sub(x['build'], x['species'], x['sample']), axis=1))
         geo = geo.drop('id', axis=1).drop_duplicates()
         geo = geo.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]

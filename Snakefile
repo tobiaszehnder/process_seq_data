@@ -20,8 +20,9 @@ bowtie2_index_dir = '/project/MDL_ChIPseq/data/genome/bowtie2_index'
 # read mpi_files table (if data_table involves MPI data)
 mpi_files = re.sub('.csv','.mpi_files',config['data_table'])
 if os.path.isfile(mpi_files):
-    mpi_files = pd.read_csv(mpi_files, index_col=0)
-
+    mpi_files_df = pd.read_csv(mpi_files, index_col=0)
+    # os.remove(mpi_files) # delete file after reading
+    
 # rules
 # ---------------------------
 
@@ -31,10 +32,11 @@ rule all:
         bam = expand('%s/bam/{sample}.rmdup.bam' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample']),
         csi = expand('%s/bam/{sample}.rmdup.bam.csi' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample'])
 
+        
 rule link_seqcore:
     # here, sample includes flow cell and mate.
     input:
-        lambda wc: mpi_files.loc[wc['sample'], 'original_file']
+        lambda wc: mpi_files_df.loc[wc['sample'], 'original_file']
     output:
         '{data_dir}/fastq/MPI/{sequencing_type}/{sample}.fastq.gz'
     shell:
@@ -172,7 +174,7 @@ rule bowtie2_index:
         fasta = ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa'),
         sizes = ancient('/project/MDL_ChIPseq/data/genome/assembly/{build}.sizes')
     output:
-        directory('%s/{build}/{build}' %bowtie2_index_dir)
+        directory('%s/{build}' %bowtie2_index_dir)
     threads: workflow.cores
     shell:
         '''
@@ -205,7 +207,7 @@ rule align_star:
         index = '%s/{build}' %star_index_dir,
         fastqs = get_fastqs
     output:
-        temp("{data_dir}/bam/{source}/{sequencing_type}/{feature,(?!ATAC).*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
+        temp('{data_dir}/bam/{source}/{sequencing_type}/{feature,(?!ATAC).*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam')
     params:
         star_params = "-s '%s'" %star_params
     threads: min(workflow.cores, 20)
@@ -215,7 +217,7 @@ rule align_star:
 rule align_bowtie2_single_end:
     # only for ATAC
     input:
-        index = '%s/{build}/{build}' %bowtie2_index_dir,
+        index = '%s/{build}' %bowtie2_index_dir,
         fastq = get_fastqs
     output:
         temp("{data_dir}/bam/{source}/single-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
@@ -223,12 +225,12 @@ rule align_bowtie2_single_end:
         '{data_dir}/bam/{source}/single-end/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
     threads: workflow.cores
     shell:
-        'bowtie2 --mm -x {input.index} --threads {threads} -U {input.fastq} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
+        'bowtie2 --mm -x {input.index}/{wildcards.build} --threads {threads} -U {input.fastq} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
 
 rule align_bowtie2_paired_end:
     # only for ATAC
     input:
-        index = '%s/{build}/{build}' %bowtie2_index_dir,
+        index = '%s/{build}' %bowtie2_index_dir,
         fastqs = get_fastqs
     output:
         temp("{data_dir}/bam/{source}/paired-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
@@ -236,7 +238,7 @@ rule align_bowtie2_paired_end:
         '{data_dir}/bam/{source}/paired-end/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
     threads: workflow.cores
     shell:
-        'bowtie2 --mm -x {input.index} --threads {threads} -1 {input.fastqs[0]} -2 {input.fastqs[1]} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
+        'bowtie2 --mm -x {input.index}/{wildcards.build} --threads {threads} -1 {input.fastqs[0]} -2 {input.fastqs[1]} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
 
 rule flagstat:
     input:
@@ -276,7 +278,7 @@ rule csort:
     shell:
         'samtools sort --threads {threads} -o {output} {input}'
 
-rule rename_singleend_bam:
+rule rename_bam_single_end:
     # single-end full.bam files can be directly renamed to .csort.bam as they don't need to be fixmated and the output of STAR is already c-sorted.
     input:
         bam='{data_dir}/bam/{source}/single-end/{sample}.full.bam',
@@ -284,7 +286,7 @@ rule rename_singleend_bam:
     output:
         temp('{data_dir}/bam/{source}/single-end/{sample}.csort.bam')
     shell:
-        'mv {input} {output}'
+        'mv {input.bam} {output}'
         
 rule rmdup:
     input:
@@ -292,7 +294,7 @@ rule rmdup:
     output:
         "{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam"
     log:
-        "{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.log"
+        "{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.rmdup.log"
     threads: workflow.cores
     shell:
         "samtools markdup -s -r --threads {threads} {input} {output} 2> {log}"
@@ -314,14 +316,14 @@ rule bam_index_noMateFlag:
     shell:
         "samtools index -c {input}"
 
-rule remove_mate_flag:
+rule remove_mate_flags:
     # remove mate flags for bigwig track creation for paired-end ATAC-seq (single-end mode)
     input:
         '{source_dir}/paired-end/{sample}.rmdup.bam'
     output:
         temp('{source_dir}/paired-end/{sample,ATAC.*}.rmdup.noMateFlags.bam')
     run:
-        remove_mate_flag(input, output)
+        remove_mate_flags_function(input, output)
 
 def get_bam(wc, index=False):
     suffix = '.csi' if index else ''
@@ -337,7 +339,7 @@ rule bw:
     output:
         "{data_dir}/bigwig/{source}/{sequencing_type}/{sample}.rpkm.bw"
     log:
-        "{data_dir}/bam/{source}/{sequencing_type}/{sample}.bamCoverage.log"
+        "{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.bamCoverage.log"
     params:
         tmp = '',
         center_reads_flag = lambda wc: '--centerReads' if data_df.loc[wc['sample'], 'experiment'] == 'ChIP-seq' else ''
@@ -345,7 +347,7 @@ rule bw:
     shell:
         "bamCoverage --binSize 10 --normalizeUsing RPKM {params.center_reads_flag} --minMappingQuality 30 -p {threads} -b {input.bam} -o {output} > {log}"
 
-rule link:
+rule link_final_files:
 #     # files will be stored in a central folder named after the data table, e.g. /project/MDL_ChIPseq/data/epigenome/user_runs/21_01_29_encode_data_mm10
 #     # symbolic links will be created to a central folder containing all files ordered by species, e.g. /project/MDL_ChIPseq/data/epigenome/mm/
 #     # and to the user's project directory
@@ -354,7 +356,4 @@ rule link:
     output:
         '%s/{filetype_dir}/{sample,[\w\-]+}.{ext1}.{ext2}' %project_dir
     shell:
-        'ln -sfv {input} {output}'
-
-### TO DO:
-# - link log files (bowtie2/star log, flagstat, bamcoverage log)
+        'ln -sf {input} {output}'

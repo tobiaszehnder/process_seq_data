@@ -4,12 +4,12 @@ flatten = lambda l: [item for sublist in l for item in sublist]
 # function for retrieving SRX for a given SRR
 get_srx = lambda srr: "https://www.ebi.ac.uk/ena/portal/api/filereport?accession=%s&result=read_run&fields=study_accession,sample_accession,experiment_accession,run_accession,tax_id,scientific_name,fastq_ftp,submitted_ftp,sra_ftp&format=tsv&download=true" %srr
 
-def remove_mate_flag(infile, outfile):
+def remove_mate_flags_function(path_infile, path_outfile):
     # function to remove mate flags from paired-end ATAC-seq bam files.
     # this is used as a preparation before creating the bigwig track so that bamCoverage treats the mates as single-end (because we're interested in the 5' cutting sites of the mates, not the read center)
     import pysam
-    infile = pysam.AlignmentFile(infile, 'rb')
-    outfile = pysam.AlignmentFile(outfile, 'wb', template=infile)
+    infile = pysam.AlignmentFile(str(path_infile), 'rb')
+    outfile = pysam.AlignmentFile(str(path_outfile), 'wb', template=infile)
     for read in infile.fetch():
         read.flag = (read.flag & 3860) # 3860 are all flags which are not related to paired-end reads, i.e. a read flag will be either that or zero.
         outfile.write(read)
@@ -22,8 +22,8 @@ def parse_data_table(data_table):
     import numpy as np, pandas as pd, urllib.request, collections, glob, re, os
     
     # load data table and split it into dataframes for mpi / geo /encode data
-    df = pd.read_csv(data_table)
-    df.rename(columns={'seqcore_folder / SRR / ENC' : 'id'}, inplace=True)
+    df = pd.read_csv(data_table).replace({'\.': ''}, regex=True) # replace all occurrences of dots
+    df.columns = ['id','feature','tissue','stage','build','condition','biological_replicate','sequencing_type','experiment','library_number','flow_cell']
     df.insert(0, 'species', df.loc[:,'build'].apply(lambda x: ''.join([i for i in x if not i.isdigit()])))
     mpi_idx = df.loc[:,'id'].apply(lambda x: os.path.isdir(x))
     geo_idx = df.loc[:,'id'].apply(lambda x: x.startswith('SRR'))
@@ -82,6 +82,7 @@ def parse_data_table(data_table):
         geo.rename(columns={0 : 'sample'}, inplace=True)
         geo.insert(1, 'fastq_sample', geo.apply(lambda x: re.sub(x['build'], x['species'], x['sample']), axis=1))
         geo = geo.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]
+        geo = geo.drop_duplicates()
     else:
         geo = pd.DataFrame()
 
@@ -98,6 +99,6 @@ def parse_data_table(data_table):
     
     # --------------------------
     ## concat and return data (and replace all occurrences of dots)
-    df = pd.concat([mpi, geo, enc], axis=0, sort=False).reset_index(drop=True).replace({'\.': ''}, regex=True)
+    df = pd.concat([mpi, geo, enc], axis=0, sort=False).reset_index(drop=True)
     
     return df

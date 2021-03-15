@@ -43,7 +43,7 @@ while getopts ":d:t:p:s:o:nluv" OPTION; do
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
 		p) nthreads="--cores $OPTARG" ;;
-		n) nthreads="-n --reason" ;;
+		n) nthreads="-nr" ;;
 		o) overwrite=$OPTARG ;;
 		l) local=True ;;
 		s) star_params=$OPTARG ;;
@@ -67,20 +67,22 @@ declare -A arr=( ["none"]=""
 				 ["bw"]="--forcerun bw" )
 force_run=${arr[$overwrite]}
 
-# echo """
-# snakemake \
-# 	--snakefile /project/process_seq_data/bin/process_seq_data/Snakefile \
-# 	--config \
-# 	project_dir=$project_dir \
-# 	data_table=$data_table \
-# 	star_params=$star_params \
-# 	write_unaligned=$write_unaligned \
-# 	local=$local \
-# 	$force_run \
-# 	$verbose \
-# 	$keep_going_flag \
-# 	$nthreads
-# """
+if [[ $nthreads == '-nr' ]]; then
+	echo """
+snakemake \
+	--snakefile /project/process_seq_data/bin/process_seq_data/Snakefile \
+	--config \
+	project_dir=$project_dir \
+	data_table=$data_table \
+	star_params=$star_params \
+	write_unaligned=$write_unaligned \
+	local=$local \
+	$force_run \
+	$verbose \
+	$keep_going_flag \
+	$nthreads
+"""
+fi
 
 echo "Reading the data table"
 

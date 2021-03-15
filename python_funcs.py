@@ -40,32 +40,30 @@ def parse_data_table(data_table):
     ## MPI: create symlinks to fastq files
     # --------------------------
 
+    ## MPI: write table with original seqcore file names and the associated sample names which the Snakefile can read
     if mpi.shape[0] > 0:
-        # define bam and fastq sample names
-        mpi.insert(0, 'source', 'MPI')
-        mpi.insert(0, 'sample', mpi.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
-        mpi.insert(0, 'fastq_sample', mpi.loc[:, ['feature','tissue','stage','species','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
-        mpi.insert(0, 'data_dir', mpi.loc[:,'species'].apply(lambda x: '/project/MDL_ChIPseq/data/epigenome/%s' %x))
-        mpi.insert(0, 'reads', mpi.loc[:,'sequencing_type'].apply(lambda x: ['R1','R2'] if x=='paired-end' else ['R1']))
-        # mpi.insert(0, 'seqcore_folder', mpi.loc[:,'id'])
+      # define bam and fastq sample names
+      mpi.insert(0, 'source', 'MPI')
+      mpi.insert(0, 'sample', mpi.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
+      mpi.insert(0, 'fastq_sample', mpi.loc[:, ['feature','tissue','stage','species','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
+      mpi.insert(0, 'data_dir', mpi.loc[:,'species'].apply(lambda x: '/project/MDL_ChIPseq/data/epigenome/%s' %x))
+      mpi.insert(0, 'mates', mpi.loc[:,'sequencing_type'].apply(lambda x: ['R1','R2'] if x=='paired-end' else ['R1']))
 
-        # link fastqs to fastq directory. rows from multiple sequencing runs are identified by having the same sample name and the same library number but different flow cell numbers
-        # and different seqcore folders, so they must be linked to the fastq directory such that the snakefile can later find the files of both runs to merge them
-        # therefore, leave the flow cell in the link name, and the snakefile will later find multiple files with different flow cell numbers
-        for idx,row in mpi.iterrows():
-            files = flatten([glob.glob('%s/*%s*%s_%s*fastq.gz' %tuple(row[['id','library_number','flow_cell']].tolist() + [r])) for r in row['reads']])
-            directory = '%s/fastq/MPI/%s/' %(row['data_dir'], row['sequencing_type'])
-            if not os.path.exists(directory):
-                os.makedirs(directory)
-            links = ['%s/%s_%s_%s.fastq.gz' %(directory, row['fastq_sample'], row['flow_cell'], r) for r in row['reads']]
-            for i in range(len(files)):
-                os.symlink(files[i], links[i] + '.tmp')
-                os.rename(links[i] + '.tmp', links[i]) # that way, existing links are overwritten (symlink doesn't overwrite)
-        mpi = mpi.loc[:,['sample', 'fastq_sample', 'source', 'experiment','sequencing_type', 'species', 'flow_cell']]
-        mpi = mpi.groupby(['sample', 'fastq_sample', 'source', 'experiment','sequencing_type','species'])['flow_cell'].apply(','.join).reset_index() # join techn. repl.
+      # write links to original seqcore files to file
+      file_dict = {}
+      for idx,row in mpi.iterrows():
+        for mate in row['mates']:
+          file_dict['%s_%s_%s' %(row['fastq_sample'], row['flow_cell'], mate)] = glob.glob('%s/*%s*%s_%s*fastq.gz' %tuple(row[['id','library_number','flow_cell']].tolist() + [mate]))
+      mpi_files_df = pd.DataFrame(file_dict, index=['original_file']).T
+      mpi_files_df.to_csv(re.sub('.csv','.mpi_files',data_table))
+
+      mpi = mpi.loc[:,['sample', 'fastq_sample', 'source', 'experiment','sequencing_type', 'species', 'flow_cell']]
+
+      # join techn. repl.
+      mpi = mpi.groupby(['sample', 'fastq_sample', 'source', 'experiment','sequencing_type','species'])['flow_cell'].apply(','.join).reset_index()
     else:
-        mpi = pd.DataFrame()
-        
+      mpi = pd.DataFrame()
+    
     # --------------------------
     ## GEO: load SRX to identify potential multiple sequencing runs and take them together in the sample name (e.g. sample_SRR1_SRR2)
     # --------------------------
@@ -78,13 +76,11 @@ def parse_data_table(data_table):
 
         # add SRR to sample name (multiple in case of multiple sequencing runs)
         # rows from multiple sequencing runs are identified by having the same sample name and the same SRX and are merged
-        grp_idx = geo.groupby(['sample','srx']).apply(lambda x: x.index.values)
-        grp_val = geo.groupby(['sample','srx']).apply(lambda x: '_'.join(x['id'].values))
-        new_sample_names = flatten([[geo.loc[x, 'sample'] + '_' + grp_val[i] for x in idx] for i,idx in enumerate(grp_idx.values)])
-        geo = geo.drop('sample', axis=1)
-        geo.insert(0, 'sample', new_sample_names)
-        geo.insert(0, 'fastq_sample', geo.apply(lambda x: re.sub(x['build'], x['species'], x['sample']), axis=1))
-        geo = geo.drop('id', axis=1).drop_duplicates()
+        new_sample_names = pd.DataFrame(geo.groupby(['sample','srx']).apply(lambda x: '_'.join(x['id'])).reset_index().set_index('sample',drop=False).loc[:,['sample',0]].agg('_'.join, axis=1))
+        geo_grouped = geo.groupby(['sample','srx']).apply(lambda x: x).set_index('sample').sort_values('sample')
+        geo = pd.merge(new_sample_names, geo_grouped, on='sample').reset_index(drop=True)
+        geo.rename(columns={0 : 'sample'}, inplace=True)
+        geo.insert(1, 'fastq_sample', geo.apply(lambda x: re.sub(x['build'], x['species'], x['sample']), axis=1))
         geo = geo.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]
     else:
         geo = pd.DataFrame()

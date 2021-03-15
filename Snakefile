@@ -11,11 +11,16 @@ star_params = config['star_params']
 # define global variables
 data_dir = '/project/MDL_ChIPseq/data/epigenome' if config['local'] == False else project_dir + '/data_local' #  + os.path.basename(os.path.splitext(config['data_table'])[0])
 data_df = parse_data_table(config['data_table']).set_index('sample', drop=False)
+# data_df.to_csv('test.df')
 data_df_fastq = data_df.set_index('fastq_sample', drop=False)
 mates = {'single-end': ['R1'], 'paired-end': ['R1', 'R2']}
 star_index_dir = '/project/MDL_ChIPseq/data/genome/star_index'
 bowtie2_index_dir = '/project/MDL_ChIPseq/data/genome/bowtie2_index'
 
+# read mpi_files table (if data_table involves MPI data)
+mpi_files = re.sub('.csv','.mpi_files',config['data_table'])
+if os.path.isfile(mpi_files):
+    mpi_files = pd.read_csv(mpi_files, index_col=0)
 
 # rules
 # ---------------------------
@@ -26,6 +31,15 @@ rule all:
         bam = expand('%s/bam/{sample}.rmdup.bam' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample']),
         csi = expand('%s/bam/{sample}.rmdup.bam.csi' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample'])
 
+rule link_seqcore:
+    # here, sample includes flow cell and mate.
+    input:
+        lambda wc: mpi_files.loc[wc['sample'], 'original_file']
+    output:
+        '{data_dir}/fastq/MPI/{sequencing_type}/{sample}.fastq.gz'
+    shell:
+        'ln -sf {input} {output}'
+        
 def get_geo_fastqs(wc):
     # This function takes a fastq sample name with all trailing SRRs and returns a list of individual fastqs
     sample = '_'.join([wc[x] for x in ['feature', 'tissue', 'stage', 'build', 'condition', 'biological_replicate', 'id']])
@@ -226,7 +240,7 @@ rule align_bowtie2_paired_end:
 
 rule flagstat:
     input:
-        '{data_dir}/bam/{source}/{sequencing_type}/{sample}.full.bam'
+        ancient('{data_dir}/bam/{source}/{sequencing_type}/{sample}.full.bam')
     output:
         '{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.full.bam.flagstat'
     threads: workflow.cores
@@ -307,7 +321,7 @@ rule remove_mate_flag:
     output:
         temp('{source_dir}/paired-end/{sample,ATAC.*}.rmdup.noMateFlags.bam')
     run:
-        remove_mate_flag('{input}' '{output}')
+        remove_mate_flag(input, output)
 
 def get_bam(wc, index=False):
     suffix = '.csi' if index else ''
@@ -325,6 +339,7 @@ rule bw:
     log:
         "{data_dir}/bam/{source}/{sequencing_type}/{sample}.bamCoverage.log"
     params:
+        tmp = '',
         center_reads_flag = lambda wc: '--centerReads' if data_df.loc[wc['sample'], 'experiment'] == 'ChIP-seq' else ''
     threads: workflow.cores
     shell:
@@ -335,12 +350,11 @@ rule link:
 #     # symbolic links will be created to a central folder containing all files ordered by species, e.g. /project/MDL_ChIPseq/data/epigenome/mm/
 #     # and to the user's project directory
     input:
-        lambda wc: '%s/%s/%s/%s/%s/%s.%s.%s' %(data_dir, data_df.loc[wc['sample'], 'species'], wc['filetype_dir'], data_df.loc[wc['sample'], 'source'], data_df.loc[wc['sample'], 'sequencing_type'], wc['sample'], wc['ext1'], wc['ext2'])
+        lambda wc: ancient('%s/%s/%s/%s/%s/%s.%s.%s') %(data_dir, data_df.loc[wc['sample'], 'species'], wc['filetype_dir'], data_df.loc[wc['sample'], 'source'], data_df.loc[wc['sample'], 'sequencing_type'], wc['sample'], wc['ext1'], wc['ext2'])
     output:
         '%s/{filetype_dir}/{sample,[\w\-]+}.{ext1}.{ext2}' %project_dir
     shell:
         'ln -sfv {input} {output}'
 
 ### TO DO:
-# - implement bowtie2
 # - link log files (bowtie2/star log, flagstat, bamcoverage log)

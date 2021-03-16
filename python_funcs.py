@@ -24,6 +24,9 @@ def parse_data_table(data_table):
     # load data table and split it into dataframes for mpi / geo /encode data
     df = pd.read_csv(data_table).replace({'\.': ''}, regex=True) # replace all occurrences of dots
     df.columns = ['id','feature','tissue','stage','build','condition','biological_replicate','sequencing_type','experiment','library_number','flow_cell']
+    if df.loc[:,['id','feature','tissue','stage','build','condition','biological_replicate','sequencing_type','experiment']].isna().any().any():
+      print('Missing values in data table. Only the columns `library_number` and `flow_cell` are allowed to be empty for non-MPI data entries.')
+      sys.exit(0)
     df.insert(0, 'species', df.loc[:,'build'].apply(lambda x: ''.join([i for i in x if not i.isdigit()])))
     mpi_idx = df.loc[:,'id'].apply(lambda x: os.path.isdir(x))
     geo_idx = df.loc[:,'id'].apply(lambda x: x.startswith('SRR'))
@@ -44,8 +47,8 @@ def parse_data_table(data_table):
     if mpi.shape[0] > 0:
       # define bam and fastq sample names
       mpi.insert(0, 'source', 'MPI')
-      mpi.insert(0, 'sample', mpi.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
-      mpi.insert(0, 'fastq_sample', mpi.loc[:, ['feature','tissue','stage','species','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
+      mpi.insert(0, 'sample', mpi.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.values), axis=1))
+      mpi.insert(0, 'fastq_sample', mpi.loc[:, ['feature','tissue','stage','species','condition','biological_replicate','library_number']].apply(lambda x: '_'.join(x.values), axis=1))
       mpi.insert(0, 'data_dir', mpi.loc[:,'species'].apply(lambda x: '/project/MDL_ChIPseq/data/epigenome/%s' %x))
       mpi.insert(0, 'mates', mpi.loc[:,'sequencing_type'].apply(lambda x: ['R1','R2'] if x=='paired-end' else ['R1']))
 
@@ -71,7 +74,7 @@ def parse_data_table(data_table):
     if geo.shape[0] > 0:
         # define sample strings
         geo.insert(0, 'source', 'GEO')
-        geo.insert(0, 'sample', geo.loc[:, ['feature','tissue','stage','build','condition','biological_replicate']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
+        geo.insert(0, 'sample', geo.loc[:, ['feature','tissue','stage','build','condition','biological_replicate']].apply(lambda x: '_'.join(x.values), axis=1))
         geo.insert(0, 'srx', geo.id.apply(lambda srr: str(urllib.request.urlopen(get_srx(srr)).read()).split('\\n')[-2].split('\\t')[2]))
 
         # add SRR to sample name (multiple in case of multiple sequencing runs)
@@ -91,8 +94,8 @@ def parse_data_table(data_table):
     # --------------------------
     if enc.shape[0] > 0:
         enc.insert(0, 'source', 'ENCODE')
-        enc.insert(0, 'sample', enc.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','id']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
-        enc.insert(0, 'fastq_sample', enc.loc[:, ['feature','tissue','stage','species','condition','biological_replicate', 'id']].apply(lambda x: '_'.join(x.dropna().values), axis=1))
+        enc.insert(0, 'sample', enc.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','id']].apply(lambda x: '_'.join(x.values), axis=1))
+        enc.insert(0, 'fastq_sample', enc.loc[:, ['feature','tissue','stage','species','condition','biological_replicate', 'id']].apply(lambda x: '_'.join(x.values), axis=1))
         enc = enc.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]
     else:
         enc = pd.DataFrame()

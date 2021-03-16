@@ -21,17 +21,28 @@ bowtie2_index_dir = '/project/MDL_ChIPseq/data/genome/bowtie2_index'
 mpi_files = re.sub('.csv','.mpi_files',config['data_table'])
 if os.path.isfile(mpi_files):
     mpi_files_df = pd.read_csv(mpi_files, index_col=0)
-    # os.remove(mpi_files) # delete file after reading
+    os.remove(mpi_files) # delete file after reading
     
 # rules
 # ---------------------------
 
+def get_log_files(project_dir, df):
+    logfiles = []
+    for idx, row in df.iterrows():
+        prefix = '%s/log/%s' %(project_dir, row['sample'])
+        logfiles += [prefix + suffix for suffix in ('.full.bam.flagstat', '.rmdup.log', '.bamCoverage.log')]
+        if row['experiment'] == 'chromatin-accessibility':
+            logfiles += [prefix + '.full.bam.bowtie2.log']
+        else:
+            logfiles += [prefix + '.full.Log.final.out']
+    return logfiles
+
 rule all:
     input:
-        bw = expand('%s/bigwig/{sample}.rpkm.bw' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample']),
-        bam = expand('%s/bam/{sample}.rmdup.bam' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample']),
-        csi = expand('%s/bam/{sample}.rmdup.bam.csi' %project_dir, species=data_df.species, source=data_df.source, sequencing_type=data_df.sequencing_type, sample=data_df['sample'])
-
+        bw = expand('%s/bigwig/{sample}.rpkm.bw' %project_dir, sample=data_df['sample']),
+        bam = expand('%s/bam/{sample}.rmdup.bam' %project_dir, sample=data_df['sample']),
+        csi = expand('%s/bam/{sample}.rmdup.bam.csi' %project_dir, sample=data_df['sample']),
+        logs = get_log_files(project_dir, data_df.loc[:,['sample','experiment']])
         
 rule link_seqcore:
     # here, sample includes flow cell and mate.
@@ -67,11 +78,13 @@ rule fasterq_single_end:
     threads: workflow.cores
     params:
         ncbi_tmp = '/scratch/local2/$USER/ncbi-tmp',
-        output = '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}.fastq'
+        output = '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}.fastq',
+        wrong_paired_end_mate2 = '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}_2.fastq'
     shell:
         '''
         mkdir -p {params.ncbi_tmp}
         fasterq-dump -t {params.ncbi_tmp} --split-files -f -e {threads} -p -o {params.output} {input}
+        if [[ -e {params.wrong_paired_end_mate2} ]]; then echo "Skipping SRR{wildcards.srr_number} (paired-end, but stated as single-end)"; rm {input} {output} {params.wrong_paired_end_mate2}; exit 0; fi
         mv {params.output} {output}
         '''
 
@@ -208,8 +221,10 @@ rule align_star:
         fastqs = get_fastqs
     output:
         temp('{data_dir}/bam/{source}/{sequencing_type}/{feature,(?!ATAC).*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam')
+    log:
+        '{data_dir}/bam/{source}/{sequencing_type}/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.Log.final.out'
     params:
-        star_params = "-s '%s'" %star_params
+        star_params = "-s '%s'" %star_params if not star_params == '' else ''
     threads: min(workflow.cores, 20)
     shell:
         "prun mdl star_align {unmapped_flag} -b {wildcards.build} -i {input.index} -n {threads} {params.star_params} -o {output} {input.fastqs}"
@@ -244,7 +259,7 @@ rule flagstat:
     input:
         ancient('{data_dir}/bam/{source}/{sequencing_type}/{sample}.full.bam')
     output:
-        '{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.full.bam.flagstat'
+        '{data_dir}/bam/{source}/{sequencing_type,((?!log).)*}/log/{sample,((?!log).)*}.full.bam.flagstat'
     threads: workflow.cores
     shell:
         'samtools flagstat --threads {threads} {input} > {output}'
@@ -319,11 +334,12 @@ rule bam_index_noMateFlag:
 rule remove_mate_flags:
     # remove mate flags for bigwig track creation for paired-end ATAC-seq (single-end mode)
     input:
-        '{source_dir}/paired-end/{sample}.rmdup.bam'
+        bam = '{source_dir}/paired-end/{sample}.rmdup.bam',
+        idx = '{source_dir}/paired-end/{sample}.rmdup.bam.csi'
     output:
         temp('{source_dir}/paired-end/{sample,ATAC.*}.rmdup.noMateFlags.bam')
     run:
-        remove_mate_flags_function(input, output)
+        remove_mate_flags_function(input.bam, output)
 
 def get_bam(wc, index=False):
     suffix = '.csi' if index else ''
@@ -348,12 +364,17 @@ rule bw:
         "bamCoverage --binSize 10 --normalizeUsing RPKM {params.center_reads_flag} --minMappingQuality 30 -p {threads} -b {input.bam} -o {output} > {log}"
 
 rule link_final_files:
-#     # files will be stored in a central folder named after the data table, e.g. /project/MDL_ChIPseq/data/epigenome/user_runs/21_01_29_encode_data_mm10
-#     # symbolic links will be created to a central folder containing all files ordered by species, e.g. /project/MDL_ChIPseq/data/epigenome/mm/
-#     # and to the user's project directory
     input:
-        lambda wc: ancient('%s/%s/%s/%s/%s/%s.%s.%s') %(data_dir, data_df.loc[wc['sample'], 'species'], wc['filetype_dir'], data_df.loc[wc['sample'], 'source'], data_df.loc[wc['sample'], 'sequencing_type'], wc['sample'], wc['ext1'], wc['ext2'])
+        lambda wc: ancient('%s/%s/{filetype_dir}/%s/%s/{sample}.{ext1}.{ext2}' %(data_dir, data_df.loc[wc['sample'], 'species'], data_df.loc[wc['sample'], 'source'], data_df.loc[wc['sample'], 'sequencing_type']))
     output:
-        '%s/{filetype_dir}/{sample,[\w\-]+}.{ext1}.{ext2}' %project_dir
+        '%s/{filetype_dir,((?!log).)*}/{sample,(?!log)[\w\-]+}.{ext1}.{ext2}' %project_dir
+    shell:
+        'ln -sf {input} {output}'
+
+rule link_log_files:
+    input:
+        lambda wc: ancient('%s/%s/bam/%s/%s/log/{sample}.{ext1}.{ext2}' %(data_dir, data_df.loc[wc['sample'], 'species'], data_df.loc[wc['sample'], 'source'], data_df.loc[wc['sample'], 'sequencing_type']))
+    output:
+        '%s/log/{sample,[\w\-]+}.{ext1}.{ext2}' %project_dir
     shell:
         'ln -sf {input} {output}'

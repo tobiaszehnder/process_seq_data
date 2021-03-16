@@ -26,6 +26,8 @@ OPTIONS:
    -u UNALIGNED		Flag for saving unaligned reads to PROJECT_DIR/bam/log/
 
    -v VERBOSE		Print verbose info
+
+   -b BETA			Use currently developed Snakefile (for testing purposes only)
 EOF
 }
 
@@ -38,7 +40,8 @@ star_params=" "
 verbose=""
 keep_going_flag="-k" # don't abort when one job fails
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
-while getopts ":d:t:p:s:o:nluv" OPTION; do
+snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
+while getopts ":d:t:p:s:o:nluvb" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
@@ -49,6 +52,7 @@ while getopts ":d:t:p:s:o:nluv" OPTION; do
 		s) star_params=$OPTARG ;;
 		u) write_unaligned=True ;;
 		v) verbose="-p" ;;
+		b) snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile" ;;
 		?) usage; exit 1 ;;
  	esac
 done
@@ -70,7 +74,7 @@ force_run=${arr[$overwrite]}
 if [[ $nthreads == '-nr' ]]; then
 	echo """
 snakemake \
-	--snakefile /project/process_seq_data/bin/process_seq_data/Snakefile \
+	--snakefile $snakefile \
 	--config \
 	project_dir=$project_dir \
 	data_table=$data_table \
@@ -88,7 +92,7 @@ echo "Reading the data table"
 
 # run snakefile
 snakemake \
-	--snakefile /project/process_seq_data/bin/process_seq_data/Snakefile \
+	--snakefile $snakefile \
 	--config \
 	project_dir=$project_dir \
 	data_table=$data_table \

@@ -40,7 +40,7 @@ star_params=" "
 verbose=""
 keep_going_flag="-k" # don't abort when one job fails
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
-snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
+snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile"
 while getopts ":d:t:p:s:o:nluvb" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
@@ -52,7 +52,7 @@ while getopts ":d:t:p:s:o:nluvb" OPTION; do
 		s) star_params=$OPTARG ;;
 		u) write_unaligned=True ;;
 		v) verbose="-p" ;;
-		b) snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile" ;;
+		b) snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_beta" ;;
 		?) usage; exit 1 ;;
  	esac
 done

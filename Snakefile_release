@@ -188,12 +188,14 @@ rule bowtie2_index:
         sizes = ancient('/project/MDL_ChIPseq/data/genome/assembly/{build}.sizes')
     output:
         directory('%s/{build}' %bowtie2_index_dir)
+    log:
+        '%s/{build}/{build}.bowtie2-build.log' %bowtie2_index_dir
     threads: workflow.cores
     shell:
         '''
-        if [[ $(cat {input.sizes} | cut -f 2 | paste -sd+ | bc) < 4000000000 ]]; then large_index_flag="--large-index"; else large_index_flag=""; fi
+        # if [[ $(cat {input.sizes} | cut -f 2 | paste -sd+ | bc) < 4000000000 ]]; then large_index_flag="--large-index"; else large_index_flag=""; fi # only needed for forced large index for genomes < 4 Bbp
         mkdir -p {output}
-        bowtie2-build $large_index_flag --threads {threads} {input.fasta} {output}/{wildcards.build}
+        bowtie2-build --threads {threads} {input.fasta} {output}/{wildcards.build} &> {log}
         '''
 
 def get_fastqs(wc):

@@ -2,9 +2,9 @@
 
 usage() {
 cat << EOF
-Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE -a ALIGNER [optional: -p NTHREADS -s ALIGNER_PARAMS -o -n -u]
+Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE [optional: -p NTHREADS -s STAR_PARAMS -n -o -u -v -b]
 
-This script processes sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
+Pipeline for processing sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
 
 OPTIONS:
    -d PROJECT_DIR	Path to your project data folder.
@@ -39,6 +39,7 @@ write_unaligned=False
 star_params=" "
 verbose=""
 keep_going_flag="-k" # don't abort when one job fails
+rerun_incomplete_flag="--rerun-incomplete"
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
 while getopts ":d:t:p:s:o:nluvb" OPTION; do
@@ -84,6 +85,7 @@ snakemake \
 	$force_run \
 	$verbose \
 	$keep_going_flag \
+	$rerun_incomplete_flag \
 	$nthreads
 """
 fi
@@ -102,5 +104,6 @@ snakemake \
 	$force_run \
 	$verbose \
 	$keep_going_flag \
+	$rerun_incomplete_flag \
 	$nthreads
 

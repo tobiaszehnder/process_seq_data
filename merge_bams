@@ -1,0 +1,31 @@
+#! /usr/bin/make -f
+# run this script with -j 4, so that in total 80 threads will be used
+
+ifndef data_dir
+$(error data_dir is not set)
+endif
+
+ifndef sample
+$(error sample is not set)
+endif
+
+datadir = $(abspath $(data_dir))
+bam_dir = $(datadir)/bam
+bw_dir = $(datadir)/bigwig
+targets = $(bw_dir)/ATAC-seq_$(sample)_merged.rpkm.bw $(bw_dir)/H3K27ac_$(sample)_merged.rpkm.bw $(bw_dir)/H3K4me1_$(sample)_merged.rpkm.bw $(bw_dir)/H3K4me3_$(sample)_merged.rpkm.bw
+
+all: $(targets)
+
+.SECONDARY:
+
+$(bam_dir)/%_merged.rmdup.bam: $(bam_dir)/%_Rep1*.rmdup.bam $(bam_dir)/%_Rep2*.rmdup.bam
+	samtools merge -@ 20 $@ $^
+
+%.bam.csi: %.bam
+	samtools index -c -@ 20 $^
+
+$(bw_dir)/ATAC%_merged.rpkm.bw: $(bam_dir)/ATAC%_merged.rmdup.bam.csi
+	bamCoverage --binSize 10 --normalizeUsing RPKM --minMappingQuality 30 -p 20 -b $(patsubst %.csi,%,$<) -o $@
+
+$(bw_dir)/H%_merged.rpkm.bw: $(bam_dir)/H%_merged.rmdup.bam.csi
+	bamCoverage --binSize 10 --normalizeUsing RPKM --centerReads --minMappingQuality 30 -p 20 -b $(patsubst %.csi,%,$<) -o $@

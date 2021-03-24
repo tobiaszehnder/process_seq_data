@@ -22,6 +22,8 @@ mpi_files = re.sub('.csv','.mpi_files',config['data_table'])
 if os.path.isfile(mpi_files):
     mpi_files_df = pd.read_csv(mpi_files, index_col=0)
     os.remove(mpi_files) # delete file after reading
+
+print(data_df)
     
 # rules
 # ---------------------------
@@ -75,7 +77,7 @@ rule fasterq_single_end:
         '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}.sra'
     output:
         temp('{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}_1.fastq')
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     params:
         ncbi_tmp = '/scratch/local2/$USER/ncbi-tmp',
         output = '{data_dir}/fastq/GEO/single-end/{sample}_SRR{srr_number}.fastq',
@@ -87,14 +89,13 @@ rule fasterq_single_end:
         if [[ -e {params.wrong_paired_end_mate2} ]]; then echo "Skipping SRR{wildcards.srr_number} (paired-end, but stated as single-end)"; rm {input} {output} {params.wrong_paired_end_mate2}; exit 0; fi
         mv {params.output} {output}
         '''
-
 rule fasterq_paired_end:
     input:
         '{data_dir}/fastq/GEO/paired-end/{sample}_SRR{srr_number}.sra'
     output:
         R1 = temp('{data_dir}/fastq/GEO/paired-end/{sample}_SRR{srr_number}_1.fastq'),
         R2 = temp('{data_dir}/fastq/GEO/paired-end/{sample}_SRR{srr_number}_2.fastq')
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     params:
         ncbi_tmp = '/scratch/local2/$USER/ncbi-tmp',
         output = '{data_dir}/fastq/GEO/paired-end/{sample}_SRR{srr_number}.fastq'
@@ -108,7 +109,7 @@ rule zip_geo_fastq:
     input:
         '{seqtype_dir}/{sample}_SRR{srr_number}_{mate_number}.fastq'
     output:
-        temp('{seqtype_dir}/{sample}_SRR{srr_number}_{mate_number,[0-9]+}.fastq.gz')
+        temp('{seqtype_dir}/{sample}_SRR{srr_number,[0-9]+}_{mate_number,[0-9]+}.fastq.gz')
     shell:
         'gzip -1 {input}'
 
@@ -116,7 +117,7 @@ rule rename_geo_fastq:
     input:
         '{seqtype_dir}/{sample}_SRR{srr_number}_{mate_number}.fastq.gz'
     output:
-        temp('{seqtype_dir}/{sample}_SRR{srr_number}_R{mate_number,[0-9]+}.fastq.gz')
+        temp('{seqtype_dir}/{sample}_SRR{srr_number,[0-9]+}_R{mate_number,[0-9]+}.fastq.gz')
     shell:
         'mv {input} {output}'
 
@@ -124,7 +125,7 @@ rule merge_geo_fastqs:
     input:
         lambda wc: ['{data_dir}/fastq/GEO/{sequencing_type}/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_%s_{mate}.fastq.gz' %id for id in wc['ids'].split('_')]
     output:
-        temp('{data_dir}/fastq/GEO/{sequencing_type}/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{ids}_merged_{mate}.fastq.gz')
+        temp('{data_dir}/fastq/GEO/{sequencing_type}/{feature,((?!_).)*}_{tissue,((?!_).)*}_{stage,((?!_).)*}_{build,((?!_).)*}_{condition,((?!_).)*}_{biological_replicate,((?!_).)*}_{ids}_merged_{mate}.fastq.gz')
     shell:
         'cat {input} > {output}'
 
@@ -164,21 +165,23 @@ rule trim_adapters:
         R1 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R1.fastq.gz'),
         R2 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R2.fastq.gz')
     output:
-        R1 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC.*}_R1_trim.fastq.gz'),
-        R2 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC.*}_R2_trim.fastq.gz')
+        R1 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC((?!merged).)*}_R1_trim.fastq.gz'),
+        R2 = temp('{data_dir}/fastq/{source}/paired-end/{sample,ATAC((?!merged).)*}_R2_trim.fastq.gz')
+    log:
+        '{data_dir}/bam/{source}/paired-end/{sample}_fastq_cutadapt.log'
     params:
         adapt1 = 'CTGTCTCTTATACACATCTCCGAGCCCACGAGAC',
         adapt2 = 'CTGTCTCTTATACACATCTGACGCTGCCGACGA'
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
-        'cutadapt -j {threads} -a {params.adapt1} -A {params.adapt2} -o {output.R1} -p {output.R2} {input.R1} {input.R2}'
+        'cutadapt -j {threads} -a {params.adapt1} -A {params.adapt2} -o {output.R1} -p {output.R2} {input.R1} {input.R2} &> {log}'
 
 rule star_index:
     input:
         ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa') # without ancient, this rule will be executed if fasta is newer than star_index_dir
     output:
         directory('%s/{build}' %star_index_dir)
-    threads: min(workflow.cores, 20)
+    threads: min(workflow.cores, 10)
     shell:
         'prun mdl star_index {wildcards.build} {input} {threads}'
 
@@ -190,7 +193,7 @@ rule bowtie2_index:
         directory('%s/{build}' %bowtie2_index_dir)
     log:
         '%s/{build}/{build}.bowtie2-build.log' %bowtie2_index_dir
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         '''
         # if [[ $(cat {input.sizes} | cut -f 2 | paste -sd+ | bc) < 4000000000 ]]; then large_index_flag="--large-index"; else large_index_flag=""; fi # only needed for forced large index for genomes < 4 Bbp
@@ -227,7 +230,7 @@ rule align_star:
         '{data_dir}/bam/{source}/{sequencing_type}/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.Log.final.out'
     params:
         star_params = "-s '%s'" %star_params if not star_params == '' else ''
-    threads: min(workflow.cores, 20)
+    threads: min(workflow.cores, 10)
     shell:
         "prun mdl star_align {unmapped_flag} -b {wildcards.build} -i {input.index} -n {threads} {params.star_params} -o {output} {input.fastqs}"
 
@@ -239,8 +242,8 @@ rule align_bowtie2_single_end:
     output:
         temp("{data_dir}/bam/{source}/single-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
     log:
-        '{data_dir}/bam/{source}/single-end/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
-    threads: workflow.cores
+        '{data_dir}/bam/{source}/single-end/log/{feature,((?!_).)*}_{tissue,((?!_).)*}_{stage,((?!_).)*}_{build,((?!_).)*}_{condition,((?!_).)*}_{biological_replicate,((?!_).)*}_{id}.full.bam.bowtie2.log'
+    threads: min(workflow.cores, 10)
     shell:
         'bowtie2 --mm -x {input.index}/{wildcards.build} --threads {threads} -U {input.fastq} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
 
@@ -250,10 +253,10 @@ rule align_bowtie2_paired_end:
         index = '%s/{build}' %bowtie2_index_dir,
         fastqs = get_fastqs
     output:
-        temp("{data_dir}/bam/{source}/paired-end/{feature,ATAC.*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam")
+        temp("{data_dir}/bam/{source}/paired-end/{feature,ATAC((?!_).)*}_{tissue,((?!_).)*}_{stage,((?!_).)*}_{build,((?!_).)*}_{condition,((?!_).)*}_{biological_replicate,((?!_).)*}_{id}.full.bam")
     log:
         '{data_dir}/bam/{source}/paired-end/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam.bowtie2.log'
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         'bowtie2 --mm -x {input.index}/{wildcards.build} --threads {threads} -1 {input.fastqs[0]} -2 {input.fastqs[1]} 2> {log} | samtools view -Su /dev/stdin | samtools sort > {output}'
 
@@ -262,7 +265,7 @@ rule flagstat:
         ancient('{data_dir}/bam/{source}/{sequencing_type}/{sample}.full.bam')
     output:
         '{data_dir}/bam/{source}/{sequencing_type,((?!log).)*}/log/{sample,((?!log).)*}.full.bam.flagstat'
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         'samtools flagstat --threads {threads} {input} > {output}'
         
@@ -273,7 +276,7 @@ rule nsort:
         flagstat = "{data_dir}/bam/{source}/paired-end/log/{sample}.full.bam.flagstat"
     output:
         temp("{data_dir}/bam/{source}/paired-end/{sample}.nsort.bam")
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         "samtools sort -n --threads {threads} -o {output} {input.bam}"
 
@@ -282,7 +285,7 @@ rule fixmate:
         "{data_dir}/bam/{source}/paired-end/{sample}.nsort.bam"
     output:
         temp("{data_dir}/bam/{source}/paired-end/{sample}.fixmate.bam")
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         "samtools fixmate -m --threads {threads} {input} {output}"
 
@@ -291,7 +294,7 @@ rule csort:
         "{data_dir}/bam/{source}/paired-end/{sample}.fixmate.bam"
     output:
         temp("{data_dir}/bam/{source}/paired-end/{sample}.csort.bam")
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         'samtools sort --threads {threads} -o {output} {input}'
 
@@ -312,7 +315,7 @@ rule rmdup:
         "{data_dir}/bam/{source}/{sequencing_type}/{sample}.rmdup.bam"
     log:
         "{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.rmdup.log"
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         "samtools markdup -s -r --threads {threads} {input} {output} 2> {log}"
         
@@ -359,9 +362,8 @@ rule bw:
     log:
         "{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.bamCoverage.log"
     params:
-        tmp = '',
         center_reads_flag = lambda wc: '--centerReads' if data_df.loc[wc['sample'], 'experiment'] == 'ChIP-seq' else ''
-    threads: workflow.cores
+    threads: min(workflow.cores, 10)
     shell:
         "bamCoverage --binSize 10 --normalizeUsing RPKM {params.center_reads_flag} --minMappingQuality 30 -p {threads} -b {input.bam} -o {output} > {log}"
 

@@ -27,7 +27,9 @@ OPTIONS:
 
    -v VERBOSE		Print verbose info
 
-   -b BETA			Use currently developed Snakefile (for testing purposes only)
+   -b BETA		Use beta Snakefile (for testing purposes only)
+
+   -g DEBUG		Snakemake --debug-dag mode
 EOF
 }
 
@@ -40,9 +42,10 @@ star_params=" "
 verbose=""
 keep_going_flag="-k" # don't abort when one job fails
 rerun_incomplete_flag="--rerun-incomplete"
+debug_flag=""
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
-while getopts ":d:t:p:s:o:nluvb" OPTION; do
+while getopts ":d:t:p:s:o:nluvbg" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
@@ -54,6 +57,7 @@ while getopts ":d:t:p:s:o:nluvb" OPTION; do
 		u) write_unaligned=True ;;
 		v) verbose="-p" ;;
 		b) snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile" ;;
+		g) debug_flag="--debug-dag" ;;
 		?) usage; exit 1 ;;
  	esac
 done
@@ -72,8 +76,7 @@ declare -A arr=( ["none"]=""
 				 ["bw"]="--forcerun bw" )
 force_run=${arr[$overwrite]}
 
-if [[ $nthreads == '-nr' ]]; then
-	echo """
+cmd="""
 snakemake \
 	--snakefile $snakefile \
 	--config \
@@ -86,24 +89,14 @@ snakemake \
 	$verbose \
 	$keep_going_flag \
 	$rerun_incomplete_flag \
+	$debug_flag \
 	$nthreads
 """
+
+# print command during dry run
+if [[ $nthreads == '-nr' ]]; then
+	echo $cmd
 fi
 
-echo "Reading the data table"
-
 # run snakefile
-snakemake \
-	--snakefile $snakefile \
-	--config \
-	project_dir=$project_dir \
-	data_table=$data_table \
-	star_params=$star_params \
-	write_unaligned=$write_unaligned \
-	local=$local \
-	$force_run \
-	$verbose \
-	$keep_going_flag \
-	$rerun_incomplete_flag \
-	$nthreads
-
+eval $cmd

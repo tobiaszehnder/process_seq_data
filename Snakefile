@@ -10,6 +10,7 @@ star_params = config['star_params']
 
 # define global variables
 data_dir = '/project/MDL_ChIPseq/data/epigenome' if config['local'] == False else project_dir + '/data_local' #  + os.path.basename(os.path.splitext(config['data_table'])[0])
+print('Reading data table')
 data_df = parse_data_table(config['data_table']).set_index('sample', drop=False)
 # data_df.to_csv('test.df')
 data_df_fastq = data_df.set_index('fastq_sample', drop=False)
@@ -23,8 +24,6 @@ if os.path.isfile(mpi_files):
     mpi_files_df = pd.read_csv(mpi_files, index_col=0)
     os.remove(mpi_files) # delete file after reading
 
-print(data_df)
-    
 # rules
 # ---------------------------
 
@@ -225,7 +224,7 @@ rule align_star:
         index = '%s/{build}' %star_index_dir,
         fastqs = get_fastqs
     output:
-        temp('{data_dir}/bam/{source}/{sequencing_type}/{feature,(?!ATAC).*}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.bam')
+        temp('{data_dir}/bam/{source}/{sequencing_type}/{feature,((?!ATAC|_).)*}_{tissue,((?!_).)*}_{stage,((?!_).)*}_{build,((?!_).)*}_{condition,((?!_).)*}_{biological_replicate,((?!_).)*}_{id}.full.bam')
     log:
         '{data_dir}/bam/{source}/{sequencing_type}/log/{feature}_{tissue}_{stage}_{build}_{condition}_{biological_replicate}_{id}.full.Log.final.out'
     params:

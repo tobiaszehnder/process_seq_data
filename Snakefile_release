@@ -6,7 +6,7 @@ from python_funcs import *
 # parse arguments
 project_dir = os.path.abspath(config['project_dir'].rstrip('/')) + '/' + os.path.basename(os.path.splitext(config['data_table'])[0])
 unmapped_flag = "-u" if config['write_unaligned'] == True else ''
-star_params = config['star_params']
+star_params = '' if not 'star_params' in config.keys() else config['star_params']
 
 # define global variables
 data_dir = '/project/MDL_ChIPseq/data/epigenome' if config['local'] == False else project_dir + '/data_local' #  + os.path.basename(os.path.splitext(config['data_table'])[0])

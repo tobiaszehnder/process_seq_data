@@ -19,13 +19,13 @@ process_data
 
    	3. Save the data table in comma-separated csv format.
 
-	4. Enter the command: prun mdl process_data -d DATA_DIR -t DATA_TABLE -n NTHREADS [optional argument: -o OVERWRITE]
+	4. Enter the command: prun mdl process_data -d DATA_DIR -t DATA_TABLE [optional arguments: -p NTHREADS -s STAR_PARAMS -o OVERWRITE -n -u -b -a]
    	   For more details on how to run the script, run 'prun mdl process_data' without arguments.
 
 
 star_align
 
-	This script will be used automatically in process_data for aligning reads.
+	This script will be used automatically in process_data for aligning ChIP-seq reads.
 
 
 star_index

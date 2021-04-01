@@ -1,3 +1,3 @@
 #! /bin/bash
 
-cat README.md
+cat /project/process_seq_data/bin/process_seq_data/README.md

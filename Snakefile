@@ -6,7 +6,7 @@ from python_funcs import *
 # parse arguments
 project_dir = os.path.abspath(config['project_dir'].rstrip('/')) + '/' + os.path.basename(os.path.splitext(config['data_table'])[0])
 unmapped_flag = "-u" if config['write_unaligned'] == True else ''
-star_params = config['star_params']
+star_params = '' if not 'star_params' in config.keys() else config['star_params']
 
 # define global variables
 data_dir = '/project/MDL_ChIPseq/data/epigenome' if config['local'] == False else project_dir + '/data_local' #  + os.path.basename(os.path.splitext(config['data_table'])[0])
@@ -40,7 +40,7 @@ def get_log_files(project_dir, df):
 
 rule all:
     input:
-        bw = expand('%s/bigwig/{sample}.rpkm.bw' %project_dir, sample=data_df['sample']),
+        bw = expand('%s/bigwig/{sample}.cpm.bw' %project_dir, sample=data_df['sample']),
         bam = expand('%s/bam/{sample}.rmdup.bam' %project_dir, sample=data_df['sample']),
         csi = expand('%s/bam/{sample}.rmdup.bam.csi' %project_dir, sample=data_df['sample']),
         logs = get_log_files(project_dir, data_df.loc[:,['sample','experiment']])
@@ -357,14 +357,14 @@ rule bw:
         bam = get_bam,
         idx = lambda wc: get_bam(wc, index=True)
     output:
-        "{data_dir}/bigwig/{source}/{sequencing_type}/{sample}.rpkm.bw"
+        "{data_dir}/bigwig/{source}/{sequencing_type}/{sample}.cpm.bw"
     log:
         "{data_dir}/bam/{source}/{sequencing_type}/log/{sample}.bamCoverage.log"
     params:
         center_reads_flag = lambda wc: '--centerReads' if data_df.loc[wc['sample'], 'experiment'] == 'ChIP-seq' else ''
     threads: min(workflow.cores, 10)
     shell:
-        "bamCoverage --binSize 10 --normalizeUsing RPKM {params.center_reads_flag} --minMappingQuality 30 -p {threads} -b {input.bam} -o {output} > {log}"
+        "bamCoverage --binSize 10 --normalizeUsing CPM {params.center_reads_flag} --minMappingQuality 30 -p {threads} -b {input.bam} -o {output} > {log}"
 
 rule link_final_files:
     input:

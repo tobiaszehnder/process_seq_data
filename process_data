@@ -14,11 +14,14 @@ OPTIONS:
    	  	  	Download template here: https://bit.ly/38VOMrc
 			Ideally store this file in the location you specified as -d DATA_DIR
 
+   -x UCSC_FOLDER	Path to folder where final bigwigs will be copied to for web access.
+   	  		If this argument is given, trackDb.txt files (one per species) will be created in that location.
+
    -p NTHREADS   	Number of parallel threads
 
    -n DRY_RUN		Flag for a dry run, i.e. only print the commands instead of executing.
  
-   -o OVERWRITE		none|fastq|bam|bw. Lowest level of files to be overwritten. Default: none.
+   -o OVERWRITE		None|fastq|bam|bw. Lowest level of files to be overwritten. Default: None.
 
    -s STAR_PARAMS	Optional: any number of parameters for the STAR aligner (for ChIP-seq) in double quotes.
    	  		Example: -s "--outFilterMultimapNmax 1 --outSAMmultNmax 1"
@@ -27,30 +30,32 @@ OPTIONS:
 
    -b BETA		Use beta Snakefile (for testing purposes only)
 
-   -a SNAKEMAKE_ARGS    Optional arguments for Snakemake in quotes, i.e. -s "--debug-dag --unlock -p"
+   -! SNAKEMAKE_ARGS    Optional arguments for Snakemake in quotes, i.e. -! "--debug-dag --unlock -p"
 EOF
 }
 
 # parse arguments (more info at https://ndench.github.io/bash/parsing-bash-flags)
 dry_run_flag=""
 nthreads="--cores 1"
-overwrite="none"
+overwrite="None"
+ucsc_folder="None"
 write_unaligned=False
 snakemake_args="-pk --rerun-incomplete" # default: verbose, keep going (don't abort when one job fails) and rerun incomplete previous jobs
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
-while getopts ":d:t:p:s:o:a:nub" OPTION; do
+while getopts ":d:t:x:p:s:o:a:nub" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
 		p) nthreads="--cores $OPTARG" ;;
 		n) nthreads="-nr" ;;
 		o) overwrite=$OPTARG ;;
+		x) ucsc_folder=$(realpath $OPTARG) ;;
 		l) local=True ;;
 		s) star_params="star_params='$OPTARG'" ;;
 		u) write_unaligned=True ;;
 		b) snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile" ;;
-		a) snakemake_args="$snakemake_args $OPTARG" ;;
+		!) snakemake_args="$snakemake_args $OPTARG" ;;
 		?) usage; exit 1 ;;
  	esac
 done
@@ -63,7 +68,7 @@ fi
 
 # determine which files to force run (overwrite)
 # the fastq rules are the lowest level rules for all three sources (mpi, geo, encode). all rules depending on those rules will be executed too.
-declare -A arr=( ["none"]=""
+declare -A arr=( ["None"]=""
 				 ["fastq"]="--forcerun merge_mpi_fastqs download_geo download_encode_single_end download_encode_paired_end"
 				 ["bam"]="--forcerun align"
 				 ["bw"]="--forcerun bw" )
@@ -76,8 +81,9 @@ snakemake \
 	project_dir=$project_dir \
 	data_table=$data_table \
 	write_unaligned=$write_unaligned \
-	$star_params \
+	ucsc_folder=$ucsc_folder \
 	local=$local \
+	$star_params \
 	$force_run \
 	$snakemake_args \
 	$nthreads

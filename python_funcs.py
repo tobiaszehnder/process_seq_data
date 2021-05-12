@@ -17,6 +17,42 @@ def remove_mate_flags_function(path_infile, path_outfile):
     outfile.close()
     return
 
+def check_and_standardize_data_table_values(df):
+  import os
+  # feature
+  df.loc[df.feature.str.lower().str.contains('atac'), 'feature'] = 'ATAC-seq'
+  df.loc[df.feature.str.lower().str.contains('k27ac'), 'feature'] = 'H3K27ac'
+  df.loc[df.feature.str.lower().str.contains('k4me1'), 'feature'] = 'H3K4me1'
+  df.loc[df.feature.str.lower().str.contains('k4me3'), 'feature'] = 'H3K4me3'
+  df.loc[df.feature.str.lower().str.contains('k27me3'), 'feature'] = 'H3K27me3'
+  df.loc[df.feature.str.lower().str.contains('k9me3'), 'feature'] = 'H3K9me3'
+  df.loc[df.feature.str.lower().str.contains('k36me3'), 'feature'] = 'H3K36me3'
+  df.loc[df.feature.str.lower().str.contains('ctcf'), 'feature'] = 'CTCF'
+  df.loc[df.feature.str.lower().str.contains('rad.*21'), 'feature'] = 'RAD21'
+  df.loc[df.feature.str.lower().str.contains('input'), 'feature'] = 'Input'
+  df['feature'] = df.feature.apply(lambda x: x[0].upper() + x[1:]) # always capitalize first letter
+  df['biological_replicate'] = df.biological_replicate.str.replace('^[Rr][Ee][Pp][^0-9]*', 'Rep', regex=True) # Rep1, Rep2
+  
+  # seqcore folder / accession number
+  if not df.id.apply(lambda x: x.startswith(('SRR','ENC')) or os.path.isdir(x)).all():
+    raise ValueError('All entries in column "seqcore_folder / SRR / ENC" must be either a valid folder or an accession number starting with SRR or ENC')
+    sys.exit(0)
+
+  # sequencing type
+  df.loc[df.sequencing_type.str.lower().str.contains('pair|pe'), 'sequencing_type'] = 'paired-end'
+  df.loc[df.sequencing_type.str.lower().str.contains('single|se'), 'sequencing_type'] = 'single-end'
+  if not df.sequencing_type.isin(['single-end','paired-end']).all():
+    raise ValueError('All entries in column "sequencing_type" must be either "single-end" or "paired-end"')
+
+  # experiment
+  df.loc[df.experiment.str.lower().str.contains('chip.*seq', regex=True), 'experiment'] = 'ChIP-seq'
+  df.loc[df.experiment.str.lower().str.contains('acc|atac', regex=True), 'experiment'] = 'chromatin-accessibility'
+  if not df.experiment.isin(['ChIP-seq','chromatin-accessibility']).all():
+    raise ValueError('All entries in column "experiment" must be either "ChIP-seq" or "chromatin-accessibility"')
+    sys.exit(0)
+    
+  return df
+  
 def parse_data_table(data_table):
     # load modules
     import numpy as np, pandas as pd, urllib.request, collections, glob, re, os
@@ -28,6 +64,7 @@ def parse_data_table(data_table):
       print('Missing values in data table. Only the columns `library_number` and `flow_cell` are allowed to be empty for non-MPI data entries.')
       sys.exit(0)
     df.insert(0, 'species', df.loc[:,'build'].apply(lambda x: ''.join([i for i in x if not i.isdigit()])))
+    df = check_and_standardize_data_table_values(df)
     mpi_idx = df.loc[:,'id'].apply(lambda x: os.path.isdir(x))
     geo_idx = df.loc[:,'id'].apply(lambda x: x.startswith('SRR'))
     enc_idx = df.loc[:,'id'].apply(lambda x: x.startswith('ENC'))
@@ -60,10 +97,10 @@ def parse_data_table(data_table):
       mpi_files_df = pd.DataFrame(file_dict, index=['original_file']).T
       mpi_files_df.to_csv(re.sub('.csv','.mpi_files',data_table))
 
-      mpi = mpi.loc[:,['sample', 'fastq_sample', 'source', 'experiment','sequencing_type', 'species', 'flow_cell']]
+      mpi = mpi.loc[:,['sample', 'fastq_sample', 'source', 'experiment','sequencing_type', 'species', 'build', 'flow_cell']]
 
       # join techn. repl.
-      mpi = mpi.groupby(['sample', 'fastq_sample', 'source', 'experiment','sequencing_type','species'])['flow_cell'].apply(','.join).reset_index()
+      mpi = mpi.groupby(['sample', 'fastq_sample', 'source', 'experiment','sequencing_type','species','build'])['flow_cell'].apply(','.join).reset_index()
     else:
       mpi = pd.DataFrame()
     
@@ -84,7 +121,7 @@ def parse_data_table(data_table):
         geo = pd.merge(new_sample_names, geo_grouped, on='sample').reset_index(drop=True)
         geo.rename(columns={0 : 'sample'}, inplace=True)
         geo.insert(1, 'fastq_sample', geo.apply(lambda x: re.sub(x['build'], x['species'], x['sample']), axis=1))
-        geo = geo.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]
+        geo = geo.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species','build']]
         geo = geo.drop_duplicates()
     else:
         geo = pd.DataFrame()
@@ -96,12 +133,12 @@ def parse_data_table(data_table):
         enc.insert(0, 'source', 'ENCODE')
         enc.insert(0, 'sample', enc.loc[:, ['feature','tissue','stage','build','condition','biological_replicate','id']].apply(lambda x: '_'.join(x.values), axis=1))
         enc.insert(0, 'fastq_sample', enc.loc[:, ['feature','tissue','stage','species','condition','biological_replicate', 'id']].apply(lambda x: '_'.join(x.values), axis=1))
-        enc = enc.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species']]
+        enc = enc.loc[:,['sample','fastq_sample','source','experiment','sequencing_type','species','build']]
     else:
         enc = pd.DataFrame()
     
     # --------------------------
-    ## concat and return data (and replace all occurrences of dots)
+    ## concat data and replace all occurrences of dots
     df = pd.concat([mpi, geo, enc], axis=0, sort=False).reset_index(drop=True)
     
     return df

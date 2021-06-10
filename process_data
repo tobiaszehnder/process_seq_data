@@ -43,7 +43,7 @@ write_unaligned=False
 snakemake_args="-pk --rerun-incomplete" # default: verbose, keep going (don't abort when one job fails) and rerun incomplete previous jobs
 local=False # Flag for saving files locally on the user's project folder instead of centrally. This option will not be advertised.
 snakefile="/project/process_seq_data/bin/process_seq_data/Snakefile_release"
-while getopts ":d:t:x:p:s:o:a:nub" OPTION; do
+while getopts ":d:t:x:p:s:o:!:nub" OPTION; do
 	case $OPTION in
 		d) project_dir=$(realpath $OPTARG) ;; # full path
 		t) data_table=$(realpath $OPTARG) ;;
@@ -96,3 +96,6 @@ fi
 
 # run snakefile
 eval $cmd
+
+# remove .snakemake folder after successful completion of snakemake
+[[ -e .snakemake ]] && rm -r .snakemake

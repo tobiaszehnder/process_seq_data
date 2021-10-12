@@ -21,3 +21,5 @@ STAR --runMode genomeGenerate \
 	 --genomeDir $index_dir/${build} \
 	 --genomeFastaFiles $fasta \
 	 --runThreadN $nthreads
+
+chmod 750 $index_dir/$build

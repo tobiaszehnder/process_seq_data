@@ -18,6 +18,7 @@ data_df_fastq = data_df.set_index('fastq_sample', drop=False)
 mates = {'single-end': ['R1'], 'paired-end': ['R1', 'R2']}
 star_index_dir = '/project/MDL_ChIPseq/data/genome/star_index'
 bowtie2_index_dir = '/project/MDL_ChIPseq/data/genome/bowtie2_index'
+fasta_dir = '/project/MDL_ChIPseq/data/genome/fasta'
 
 # read mpi_files table (if data_table involves MPI data)
 mpi_files = re.sub('.csv','.mpi_files',config['data_table'])
@@ -174,7 +175,6 @@ rule download_encode_paired_end:
 
 rule trim_adapters:
     input:
-        # ancient: ignore time stamp of fastqs because in case of MPI data, potentially existing links are updated every time a data table is parsed, thereby evoking the execution of all downstream rules.
         R1 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R1.fastq.gz'),
         R2 = ancient('{data_dir}/fastq/{source}/paired-end/{sample}_R2.fastq.gz')
     output:
@@ -191,13 +191,35 @@ rule trim_adapters:
 
 rule star_index:
     input:
-        ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa') # without ancient, this rule will be executed if fasta is newer than star_index_dir
+        ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa')
     output:
         directory('%s/{build}' %star_index_dir)
     threads: min(workflow.cores, 10)
     shell:
         'prun mdl star_index {wildcards.build} {input} {threads}'
 
+rule download_fasta_ucsc:
+    output:
+        '{fasta_dir}/{build}.fa.gz'
+    shell:
+        'wget -nc http://hgdownload.cse.ucsc.edu/goldenpath/{wildcards.build}/bigZips/{wildcards.build}.fa.gz -O /dev/stdout | gzip -d > {output}'
+
+rule two_bit:
+    input:
+        '%s/{build}.fa' %fasta_dir
+    output:
+        '{assembly_dir}/{build}.2bit'
+    shell:
+        'faToTwoBit {input} {output}'
+        
+rule chromosome_sizes:
+    input:
+        '{assembly_dir}/{build}.2bit'
+    output:
+        '{assembly_dir}/{build}.sizes'
+    shell:
+        'twoBitInfo ${assembly_dir}/$assembly_name.2bit stdout | sort -k2rn > ${assembly_dir}/$assembly_name.sizes'
+        
 rule bowtie2_index:
     input:
         fasta = ancient('/project/MDL_ChIPseq/data/genome/fasta/{build}.fa'),
@@ -368,8 +390,8 @@ def get_bam(wc, index=False):
 
 rule bw:
     input:
-        bam = get_bam,
-        idx = lambda wc: get_bam(wc, index=True)
+        bam = ancient(get_bam),
+        idx = lambda wc: ancient(get_bam(wc, index=True))
     output:
         "{data_dir}/bigwig/{source}/{sequencing_type}/{sample}.cpm.bw"
     log:

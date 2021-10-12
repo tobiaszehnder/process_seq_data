@@ -97,5 +97,5 @@ fi
 # run snakefile
 eval $cmd
 
-# remove .snakemake folder after successful completion of snakemake
-[[ -e .snakemake ]] && rm -r .snakemake
+# # change .snakemake folder access after successful completion of snakemake
+# [[ -e .snakemake ]] && chmod -R 775 .snakemake

@@ -257,7 +257,7 @@ def get_fastqs(wc):
         
 rule align_star:
     input:
-        index = '%s/{build}' %star_index_dir,
+        index = ancient('%s/{build}' %star_index_dir),
         fastqs = get_fastqs
     output:
         temp('{data_dir}/bam/{source}/{sequencing_type}/{feature,((?!ATAC|_).)*}_{tissue,((?!_).)*}_{stage,((?!_).)*}_{build,((?!_).)*}_{condition,((?!_).)*}_{biological_replicate,((?!_).)*}_{id}.full.bam')

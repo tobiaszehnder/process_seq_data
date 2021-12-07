@@ -18,7 +18,7 @@ def remove_mate_flags_function(path_infile, path_outfile):
     return
 
 def check_and_standardize_data_table_values(df):
-  import os
+  import sys, os
   # feature
   df.loc[df.feature.str.lower().str.contains('atac'), 'feature'] = 'ATAC-seq'
   df.loc[df.feature.str.lower().str.contains('k27ac'), 'feature'] = 'H3K27ac'
@@ -55,10 +55,10 @@ def check_and_standardize_data_table_values(df):
   
 def parse_data_table(data_table):
     # load modules
-    import numpy as np, pandas as pd, urllib.request, collections, glob, re, os
+    import numpy as np, pandas as pd, urllib.request, collections, glob, re, sys, os
     
     # load data table and split it into dataframes for mpi / geo /encode data
-    df = pd.read_csv(data_table).replace({'\.': ''}, regex=True) # replace all occurrences of dots
+    df = pd.read_csv(data_table, comment='#').replace({'\.': ''}, regex=True) # replace all occurrences of dots
     df.columns = ['id','feature','tissue','stage','build','condition','biological_replicate','sequencing_type','experiment','library_number','flow_cell']
     if df.loc[:,['id','feature','tissue','stage','build','condition','biological_replicate','sequencing_type','experiment']].isna().any().any():
       print('Missing values in data table. Only the columns `library_number` and `flow_cell` are allowed to be empty for non-MPI data entries.')

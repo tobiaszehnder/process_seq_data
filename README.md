@@ -16,6 +16,7 @@ process_data
 
    	2. Download the data table template and fill in the specifics of your data.
 	   https://bit.ly/38VOMrc
+	   Make sure you read the comments in the google sheets data table for format guidance (e.g. what do I have to type in the column "sequencing-type"?)
 
    	3. Save the data table in comma-separated csv format.
 

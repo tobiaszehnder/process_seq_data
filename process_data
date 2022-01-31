@@ -13,6 +13,7 @@ OPTIONS:
    -t DATA_TABLE 	Path to your data table in comma-separated csv format
    	  	  	Download template here: https://bit.ly/38VOMrc
 			Ideally store this file in the location you specified as -d DATA_DIR
+			PLEASE read the comments in the google sheets data table for format guidance (e.g. what do I have to type in the column "sequencing-type"?)
 
    -x UCSC_FOLDER	Path to folder where final bigwigs will be copied to for web access.
    	  		If this argument is given, trackDb.txt files (one per species) will be created in that location.

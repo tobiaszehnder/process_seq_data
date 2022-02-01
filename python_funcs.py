@@ -31,8 +31,9 @@ def check_and_standardize_data_table_values(df):
   df.loc[df.feature.str.lower().str.contains('rad.*21'), 'feature'] = 'RAD21'
   df.loc[df.feature.str.lower().str.contains('input'), 'feature'] = 'Input'
   df['feature'] = df.feature.apply(lambda x: x[0].upper() + x[1:]) # always capitalize first letter
-  df['biological_replicate'] = df.loc[:,'biological_replicate'].apply(lambda x: 'Rep'+str(x) if type(x) == int else x) # prepend 'Rep' if the biological replicate is a number
-  df['biological_replicate'] = df.biological_replicate.str.replace('^[Rr][Ee][Pp][^0-9]*', 'Rep', regex=True) # stanrardize format to RepN (Rep1, Rep2, ...)
+  df['biological_replicate'] = df['biological_replicate'].apply(lambda x: 'Rep'+str(x) if type(x) == int else x) # prepend 'Rep' if the biological replicate is a number
+  df['biological_replicate'] = df['biological_replicate'].str.replace('^[Rr][Ee][Pp][^0-9]*', 'Rep', regex=True) # standardize format to RepN (Rep1, Rep2, ...)
+  df = df.apply(lambda x: x.astype(str).str.replace(' |_', '-', regex=True)) # replace spaces and underlines by dashes
   
   # seqcore folder / accession number
   if not df.id.apply(lambda x: x.startswith(('SRR','ENC')) or os.path.isdir(os.path.realpath(x))).all():

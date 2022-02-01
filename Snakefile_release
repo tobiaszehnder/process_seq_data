@@ -13,6 +13,7 @@ ucsc_folder = os.path.abspath(config['ucsc_folder'])
 data_dir = '/project/MDL_ChIPseq/data/epigenome' if config['local'] == False else project_dir + '/data_local' #  + os.path.basename(os.path.splitext(config['data_table'])[0])
 print('Reading data table')
 data_df = parse_data_table(config['data_table']).set_index('sample', drop=False)
+print(data_df.dtypes)
 # data_df.to_csv('test.df')
 data_df_fastq = data_df.set_index('fastq_sample', drop=False)
 mates = {'single-end': ['R1'], 'paired-end': ['R1', 'R2']}

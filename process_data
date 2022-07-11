@@ -5,6 +5,8 @@ cat << EOF
 Usage: prun mdl ${0##*/} -d DATA_DIR -t DATA_TABLE [optional: -p NTHREADS -s STAR_PARAMS -o OVERWRITE -n -u -b -a]
 
 Pipeline for processing sequencing data from ChIP-seq and chromatin accessibility assays from fastq to bigwig.
+Location: /project/process_seq_data/bin/process_seq_data
+Owner: Tobias Zehnder (zehnder[at]molgen.mpg.de)
 
 OPTIONS:
    -d PROJECT_DIR	Path to your project data folder.
